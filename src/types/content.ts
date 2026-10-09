@@ -23,6 +23,7 @@ export type ContentItem = {
   caption: string
   hashtags?: string
   firstComment?: string | null
+  audio?: { id: string; title: string; artist: string | null; audioVolume: number; videoVolume: number } | null
   format?: string | null
   type: ContentType
   platforms: Platform[]

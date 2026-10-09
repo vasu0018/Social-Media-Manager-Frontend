@@ -11,6 +11,7 @@ type SaveContentInput = {
   caption: string
   hashtags: string
   firstComment: string | null
+  audio?: { id: string; title: string; artist: string | null; audioVolume: number; videoVolume: number } | null
   destinations: Array<{ platform: 'instagram' | 'facebook'; accountId: string; format: string }>
   mediaId: string | null
   action: 'draft' | 'schedule' | 'publish'

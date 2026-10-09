@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { Hint, HintButton } from '@/components/shared/hint'
 import { Field } from '@/components/shared/field'
+import { SongPicker, type SongChoice } from '@/components/shared/song-picker'
 import { PageHeader } from '@/components/shared/page-header'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -68,6 +69,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
   const [caption, setCaption] = useState('')
   const [hashtags, setHashtags] = useState('')
   const [firstComment, setFirstComment] = useState('')
+  const [song, setSong] = useState<SongChoice | null>(null)
   const [mediaId, setMediaId] = useState<string | null>(null)
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
@@ -82,6 +84,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
   const [saving, setSaving] = useState(false)
 
   const selected = (['instagram', 'facebook'] as const).filter((platform) => platforms[platform])
+  const songEnabled = (kind === 'reel' || kind === 'video') && platforms.instagram
   const formats = selected.map((platform) => composerFormats.find((entry) => entry.id === formatId(kind, platform))!)
   const asset = media.find((entry) => entry.id === mediaId) ?? null
   const firstCommentAllowed = formats.some((format) => format.firstComment)
@@ -198,6 +201,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
         caption: caption.trim(),
         hashtags: preparedHashtags().join(' '),
         firstComment: firstCommentAllowed ? firstComment.trim() || null : null,
+        audio: songEnabled ? song : null,
         destinations: selected.map((platform) => ({
           platform,
           accountId: accountIds[platform],
@@ -343,6 +347,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
               )
             })}
           </fieldset>
+          <SongPicker accountId={accountIds.instagram} enabled={songEnabled} value={song} onChange={setSong} />
           <Field label="Title" htmlFor="title" hint="Internal only. This is not sent to Instagram or Facebook." error={fieldError && title.trim().length < 2 ? fieldError : undefined}>
             <Input id="title" value={title} maxLength={120} onChange={(event) => setTitle(event.target.value)} />
           </Field>
