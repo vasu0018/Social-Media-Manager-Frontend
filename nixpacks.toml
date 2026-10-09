@@ -1,0 +1,5 @@
+# Vite 8 / Rolldown need Node ^20.19 or >=22.12.
+# Nixpacks otherwise defaults to Node 18, which fails `npm run build`
+# with: node:util does not provide an export named 'styleText'.
+[variables]
+NIXPACKS_NODE_VERSION = "22"
