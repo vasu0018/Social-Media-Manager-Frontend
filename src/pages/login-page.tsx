@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { useAuth } from '@/context/auth-context'
 import { usePageTitle } from '@/hooks/use-page-title'
 import { api } from '@/lib/api'
+import { LegalLinks } from '@/pages/legal-page'
 import { fieldErrors, loginSchema } from '@/lib/validation'
 
 export function LoginPage() {
@@ -125,6 +126,9 @@ export function LoginPage() {
               </Button>
             </div>
           ) : null}
+          <div className="mt-8">
+            <LegalLinks />
+          </div>
         </div>
       </section>
     </div>

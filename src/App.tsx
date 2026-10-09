@@ -11,6 +11,7 @@ import { ContentListPage } from '@/pages/content-list-page'
 import { CreateContentPage } from '@/pages/create-content-page'
 import { DashboardPage } from '@/pages/dashboard-page'
 import { HistoryPage } from '@/pages/history-page'
+import { AccountDeletionPage, PrivacyPage, TermsPage } from '@/pages/legal-page'
 import { LoginPage } from '@/pages/login-page'
 import { MediaLibraryPage } from '@/pages/media-library-page'
 import { ScheduledPage } from '@/pages/scheduled-page'
@@ -23,6 +24,9 @@ export default function App() {
         <AuthProvider>
           <ContentProvider>
             <Routes>
+              <Route path="/privacy" element={<PrivacyPage />} />
+              <Route path="/terms" element={<TermsPage />} />
+              <Route path="/account-deletion" element={<AccountDeletionPage />} />
               <Route element={<GuestOnly />}>
                 <Route path="/login" element={<LoginPage />} />
               </Route>
