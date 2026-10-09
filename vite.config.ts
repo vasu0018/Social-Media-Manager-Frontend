@@ -3,7 +3,12 @@ import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 
+const apiUrl = (process.env.VITE_API_URL || process.env.API_UPSTREAM || '').replace(/\/$/, '')
+
 export default defineConfig({
+  define: {
+    __API_URL__: JSON.stringify(apiUrl),
+  },
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

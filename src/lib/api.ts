@@ -1,3 +1,9 @@
+export const apiBase = __API_URL__
+
+export function apiPath(path: string) {
+  return `${apiBase}${path}`
+}
+
 export class ApiError extends Error {
   status: number
 
@@ -8,7 +14,7 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(apiPath(path), {
     ...init,
     credentials: 'include',
     headers: {
@@ -35,7 +41,7 @@ export function uploadFile(path: string, file: File, fields: Record<string, stri
     body.set('file', file)
     for (const [key, value] of Object.entries(fields)) body.set(key, value)
     const request = new XMLHttpRequest()
-    request.open('POST', path)
+    request.open('POST', apiPath(path))
     request.withCredentials = true
     request.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100))

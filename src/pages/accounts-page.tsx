@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useContent } from '@/context/content-context'
 import { usePageTitle } from '@/hooks/use-page-title'
-import { api } from '@/lib/api'
+import { api, apiPath } from '@/lib/api'
 import { formatCount, formatDateTime, platformLabel } from '@/lib/format'
 import type { SocialAccount, TokenStatus } from '@/types/content'
 
@@ -84,7 +84,7 @@ export function AccountsPage() {
     if (purpose === 'instagram' && instagramReady === false) return
     if (purpose === 'facebook' && facebookReady === false) return
     const commentsFlag = purpose === 'instagram' && comments ? '&comments=1' : ''
-    window.location.assign(`/api/oauth/start?purpose=${purpose}${commentsFlag}`)
+    window.location.assign(apiPath(`/api/oauth/start?purpose=${purpose}${commentsFlag}`))
   }
 
   return (
@@ -227,7 +227,7 @@ function AccountCard({
         <div className="flex flex-wrap gap-2">
           {needsReconnect ? (
             <Button
-              onClick={() => window.location.assign(`/api/oauth/start?purpose=${account.platform}`)}
+              onClick={() => window.location.assign(apiPath(`/api/oauth/start?purpose=${account.platform}`))}
             >
               Reconnect
             </Button>
