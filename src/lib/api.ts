@@ -17,8 +17,15 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     },
   })
   const text = await response.text()
-  const data = text ? JSON.parse(text) as { error?: string } : {}
-  if (!response.ok) throw new ApiError(response.status, data.error ?? 'Request failed')
+  let data: { error?: string } = {}
+  if (text) {
+    try {
+      data = JSON.parse(text) as { error?: string }
+    } catch {
+      throw new ApiError(response.status, 'The studio API is unreachable.')
+    }
+  }
+  if (!response.ok) throw new ApiError(response.status, data.error ?? 'The studio API is unreachable.')
   return data as T
 }
 
