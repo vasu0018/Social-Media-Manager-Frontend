@@ -89,6 +89,7 @@ export type SocialAccount = {
   grantedScopes?: string[]
   tokenExpiresAt?: string | null
   dataAccessExpiresAt?: string | null
+  canBrowseSongs?: boolean
 }
 
 export type MediaAsset = {

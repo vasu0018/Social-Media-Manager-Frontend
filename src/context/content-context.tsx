@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { useAuth } from '@/context/auth-context'
-import { api, ApiError, uploadFile } from '@/lib/api'
+import { api, apiPath, ApiError, uploadFile } from '@/lib/api'
 import { formatBytes } from '@/lib/format'
 import { seedSettings } from '@/data/mock'
 import type { ContentItem, MediaAsset, SocialAccount, WorkspaceSettings } from '@/types/content'
@@ -61,7 +61,7 @@ function asMedia(raw: Record<string, unknown>): MediaAsset {
     id: String(raw.id),
     name: String(raw.name ?? 'upload'),
     kind: raw.kind === 'video' ? 'video' : 'image',
-    src: typeof raw.src === 'string' ? raw.src : null,
+    src: typeof raw.src === 'string' ? (raw.src.startsWith('http') ? raw.src : apiPath(raw.src)) : null,
     tone: 'bg-slate-200',
     createdAt: String(raw.createdAt ?? new Date().toISOString()),
     sizeLabel: formatBytes(bytes),

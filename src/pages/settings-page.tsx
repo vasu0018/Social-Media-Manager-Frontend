@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { toast } from 'sonner'
+import { AccountConnections } from '@/components/shared/account-connections'
 import { Field } from '@/components/shared/field'
 import { PageHeader } from '@/components/shared/page-header'
 import { Button } from '@/components/ui/button'
@@ -56,8 +57,9 @@ export function SettingsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Settings"
-        description="Workspace profile, default platforms, and notification preferences."
+        description="Connect Instagram and Facebook here, then set the workspace profile."
       />
+      <AccountConnections returnTo="/settings" />
       <form onSubmit={onSubmit} className="grid gap-4 lg:grid-cols-2" noValidate>
         <Card>
           <CardHeader>

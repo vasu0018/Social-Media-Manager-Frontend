@@ -1,5 +1,5 @@
 import { CalendarClock, CirclePlay, Clapperboard, FilePen, Image as ImageIcon, ImagePlus, Send, Upload, Video, X } from 'lucide-react'
-import { useMemo, useState, type DragEvent } from 'react'
+import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
@@ -58,10 +58,10 @@ function initialKind(story: boolean, value: string | null): Kind {
 }
 
 export function CreateContentPage({ story = false }: { story?: boolean }) {
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   usePageTitle(story ? 'Create Story' : 'Create Content')
   const navigate = useNavigate()
-  const { accounts, media, settings, saveContent, uploadMedia } = useContent()
+  const { accounts, media, settings, saveContent, uploadMedia, refresh } = useContent()
   const [kind, setKind] = useState<Kind>(() => initialKind(story, params.get('kind')))
   const [platforms, setPlatforms] = useState<Record<Platform, boolean>>({ instagram: true, facebook: false })
   const [accountIds, setAccountIds] = useState<Record<Platform, string>>({ instagram: '', facebook: '' })
@@ -70,6 +70,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
   const [hashtags, setHashtags] = useState('')
   const [firstComment, setFirstComment] = useState('')
   const [song, setSong] = useState<SongChoice | null>(null)
+  const [batch, setBatch] = useState<MediaAsset[]>([])
   const [mediaId, setMediaId] = useState<string | null>(null)
   const [date, setDate] = useState('')
   const [time, setTime] = useState('')
@@ -83,10 +84,19 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
   const [confirm, setConfirm] = useState<'publish' | 'schedule' | null>(null)
   const [saving, setSaving] = useState(false)
 
+  useEffect(() => {
+    if (params.get('connected') !== 'facebook') return
+    toast.success('Facebook Page connected. Songs load for the Instagram account that Page owns.')
+    void refresh()
+    const next = new URLSearchParams(params)
+    next.delete('connected')
+    setParams(next, { replace: true })
+  }, [params, refresh, setParams])
+
   const selected = (['instagram', 'facebook'] as const).filter((platform) => platforms[platform])
   const songEnabled = (kind === 'reel' || kind === 'video') && platforms.instagram
   const formats = selected.map((platform) => composerFormats.find((entry) => entry.id === formatId(kind, platform))!)
-  const asset = media.find((entry) => entry.id === mediaId) ?? null
+  const asset = batch.find((entry) => entry.id === mediaId) ?? batch[0] ?? media.find((entry) => entry.id === mediaId) ?? null
   const firstCommentAllowed = formats.some((format) => format.firstComment)
   const scheduledAt = date && time ? zonedToUtc(date, time, timezone) : null
   const nextRun = scheduledAt ? `${formatInZone(scheduledAt.toISOString(), timezone)} (${timezone})` : null
@@ -102,27 +112,53 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
     return null
   }
 
-  async function onFile(file: File) {
+  async function onFiles(files: File[]) {
+    if (files.length === 0) return
     setErrors([])
     const active = selected.length > 0 ? selected : (['instagram'] as const)
+    const accepted: MediaAsset[] = []
+    const problems: string[] = []
+    setProgress(0)
     try {
-      const probe = await probeFile(file)
-      const localErrors = active.flatMap((platform) => validateLocalMedia(formatId(kind, platform), probe))
-      if (localErrors.length > 0) {
-        setErrors([...new Set(localErrors)])
-        setMediaId(null)
-        return
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index]
+        if (!file) continue
+        if (file.size > 300 * 1024 * 1024) {
+          problems.push(`${file.name}: Files must be 300 MB or smaller.`)
+          continue
+        }
+        try {
+          const probe = await probeFile(file)
+          const localErrors = [...new Set(active.flatMap((platform) => validateLocalMedia(formatId(kind, platform), probe)))]
+          if (localErrors.length > 0) {
+            problems.push(`${file.name}: ${localErrors[0]}`)
+            continue
+          }
+          const uploaded = await uploadMedia(file, formatId(kind, active[0] ?? 'instagram'), (percent) => {
+            setProgress(Math.round(((index + percent / 100) / files.length) * 100))
+          })
+          if (uploaded.errors.length > 0) {
+            problems.push(`${file.name}: ${uploaded.errors[0]}`)
+            continue
+          }
+          accepted.push(uploaded.media)
+        } catch (error) {
+          problems.push(`${file.name}: ${error instanceof Error ? error.message : 'Upload failed'}`)
+        }
       }
-      setProgress(0)
-      const uploaded = await uploadMedia(file, formatId(kind, active[0] ?? 'instagram'), setProgress)
-      setMediaId(uploaded.media.id)
-      setTitle((current) => current.trim() || file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').slice(0, 120))
-      if (uploaded.errors.length > 0) {
-        setErrors(uploaded.errors)
-        setMediaId(null)
+      if (accepted.length > 0) {
+        setBatch((current) => {
+          const next = [...current]
+          for (const item of accepted) {
+            if (!next.some((entry) => entry.id === item.id)) next.push(item)
+          }
+          return next
+        })
+        setMediaId((current) => current ?? accepted[0]?.id ?? null)
+        const firstName = accepted[0]?.name ?? ''
+        setTitle((current) => current.trim() || firstName.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').slice(0, 120))
       }
-    } catch (error) {
-      setErrors([error instanceof Error ? error.message : 'Upload failed'])
+      setErrors(problems)
     } finally {
       setProgress(null)
     }
@@ -173,7 +209,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
           return false
         }
       }
-      if (!mediaId || errors.length > 0) {
+      if (batch.length === 0) {
         setFieldError(errors[0] ?? 'Upload a file that meets every selected platform.')
         return false
       }
@@ -196,24 +232,31 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
     }
     setSaving(true)
     try {
-      await saveContent({
-        title: title.trim(),
-        caption: caption.trim(),
-        hashtags: preparedHashtags().join(' '),
-        firstComment: firstCommentAllowed ? firstComment.trim() || null : null,
-        audio: songEnabled ? song : null,
-        destinations: selected.map((platform) => ({
-          platform,
-          accountId: accountIds[platform],
-          format: formatId(kind, platform),
-        })),
-        mediaId,
-        action,
-        scheduledAt: action === 'schedule' && scheduledAt ? scheduledAt.toISOString() : null,
-        timezone,
-      })
-      if (action === 'publish') toast('Publishing is running on the server. A result appears when Meta confirms it.')
-      else toast.success(action === 'draft' ? 'Draft saved' : `Scheduled for ${nextRun}`)
+      const files = batch.length > 0 ? batch : [null]
+      for (const file of files) {
+        const fileTitle = file && files.length > 1
+          ? `${title.trim()} · ${file.name.replace(/\.[^.]+$/, '')}`.slice(0, 120)
+          : title.trim()
+        await saveContent({
+          title: fileTitle,
+          caption: caption.trim(),
+          hashtags: preparedHashtags().join(' '),
+          firstComment: firstCommentAllowed ? firstComment.trim() || null : null,
+          audio: songEnabled ? song : null,
+          destinations: selected.map((platform) => ({
+            platform,
+            accountId: accountIds[platform],
+            format: formatId(kind, platform),
+          })),
+          mediaId: file?.id ?? null,
+          action,
+          scheduledAt: action === 'schedule' && scheduledAt ? scheduledAt.toISOString() : null,
+          timezone,
+        })
+      }
+      const countLabel = files.length > 1 ? `${files.length} posts` : 'This post'
+      if (action === 'publish') toast(`${countLabel} ${files.length > 1 ? 'are' : 'is'} publishing on the server. A result appears when Meta confirms it.`)
+      else toast.success(action === 'draft' ? (files.length > 1 ? `${files.length} drafts saved` : 'Draft saved') : `${countLabel} scheduled for ${nextRun}`)
       navigate(action === 'draft' ? '/content' : action === 'schedule' ? '/scheduled' : '/history')
     } catch (error) {
       setFieldError(error instanceof Error ? error.message : 'Could not save this content.')
@@ -264,18 +307,17 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
               onDrop={(event: DragEvent<HTMLLabelElement>) => {
                 event.preventDefault()
                 setDragging(false)
-                const file = event.dataTransfer.files[0]
-                if (file) void onFile(file)
+                void onFiles([...event.dataTransfer.files])
               }}
               className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-4 py-12 text-center ${dragging ? 'border-primary bg-blue-50' : 'border-blue-200 bg-white'}`}
             >
               <Upload className="mb-2 h-6 w-6 text-primary" />
-              <span className="text-sm font-semibold">Drop the finished {kind === 'story' ? 'story' : kind} here</span>
-              <span className="mt-1 text-xs text-muted-foreground">JPG, PNG, MP4, or MOV</span>
-              <input id="media-file" type="file" className="sr-only" accept="image/jpeg,image/png,video/mp4,video/quicktime" onChange={(event) => {
-                const file = event.target.files?.[0]
+              <span className="text-sm font-semibold">Drop one or more finished {kind === 'story' ? 'stories' : `${kind}s`} here</span>
+              <span className="mt-1 text-xs text-muted-foreground">JPG, PNG, MP4, or MOV. Several files become separate posts with the same caption.</span>
+              <input id="media-file" type="file" multiple className="sr-only" accept="image/jpeg,image/png,video/mp4,video/quicktime" onChange={(event) => {
+                const files = [...(event.target.files ?? [])]
                 event.target.value = ''
-                if (file) void onFile(file)
+                void onFiles(files)
               }} />
             </label>
             {progress !== null ? (
@@ -284,7 +326,26 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
                 <p className="text-xs text-muted-foreground">Uploading {progress}%</p>
               </div>
             ) : null}
-            {asset ? <p className="text-sm">Selected: {asset.name} · {asset.sizeLabel}</p> : null}
+            {batch.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-sm">{batch.length === 1 ? `Selected: ${batch[0]?.name} · ${batch[0]?.sizeLabel}` : `${batch.length} files selected. Each one is published separately.`}</p>
+                <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                  {batch.map((item) => (
+                    <li key={item.id} className="space-y-1">
+                      <button type="button" onClick={() => setMediaId(item.id)} className={`block aspect-square w-full overflow-hidden rounded-lg border bg-slate-100 ${item.id === asset?.id ? 'border-indigo-600 ring-2 ring-indigo-200' : 'border-slate-200'}`} aria-label={`Preview ${item.name}`}>
+                        {item.kind === 'video'
+                          ? <video src={item.src ?? undefined} className="h-full w-full object-cover" muted />
+                          : <img src={item.src ?? undefined} alt="" className="h-full w-full object-cover" />}
+                      </button>
+                      <button type="button" className="text-xs font-medium text-slate-600" onClick={() => {
+                        setBatch((current) => current.filter((entry) => entry.id !== item.id))
+                        setMediaId((current) => current === item.id ? null : current)
+                      }}>Remove</button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {errors.length > 0 ? <ul className="space-y-1 text-sm text-destructive" role="alert">{errors.map((error) => <li key={error}>{error}</li>)}</ul> : null}
           </div>
           <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -347,7 +408,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
               )
             })}
           </fieldset>
-          <SongPicker accountId={accountIds.instagram} enabled={songEnabled} value={song} onChange={setSong} />
+          <SongPicker accountId={accountIds.instagram} enabled={songEnabled} facebookToo={platforms.facebook} value={song} onChange={setSong} />
           <Field label="Title" htmlFor="title" hint="Internal only. This is not sent to Instagram or Facebook." error={fieldError && title.trim().length < 2 ? fieldError : undefined}>
             <Input id="title" value={title} maxLength={120} onChange={(event) => setTitle(event.target.value)} />
           </Field>
@@ -420,9 +481,11 @@ function StepLabel({ n, title }: { n: number; title: string }) {
 
 function InstagramPreview({ story, caption, asset }: { story: boolean; caption: string; asset: MediaAsset | null }) {
   return (
-    <div className={`mx-auto overflow-hidden rounded-[28px] border bg-black text-white shadow-sm ${story ? 'aspect-[9/16] max-w-[260px]' : 'max-w-[320px]'}`}>
-      <div className={story ? 'h-3/4' : 'aspect-square'}><PreviewMedia asset={asset} /></div>
-      {story ? null : <p className="max-h-28 overflow-hidden whitespace-pre-wrap px-3 py-2 text-xs">{caption || 'Caption preview'}</p>}
+    <div className={`mx-auto overflow-hidden rounded-[28px] border bg-black text-white shadow-sm ${story ? 'relative aspect-[9/16] w-full max-w-[260px]' : 'w-full max-w-[320px]'}`}>
+      <div className={story ? 'absolute inset-0' : 'relative aspect-square'}>
+        <PreviewMedia asset={asset} />
+      </div>
+      {story ? null : <p className="max-h-28 overflow-hidden whitespace-pre-wrap bg-black px-3 py-2 text-xs">{caption || 'Caption preview'}</p>}
     </div>
   )
 }
@@ -435,13 +498,19 @@ function FacebookPreview({ caption, asset, name }: { caption: string; asset: Med
         <span className="text-sm font-semibold">{name}</span>
       </div>
       <p className="whitespace-pre-wrap px-3 pb-2 text-sm">{caption || 'Caption preview'}</p>
-      <div className="aspect-video bg-slate-100"><PreviewMedia asset={asset} /></div>
+      <div className="relative aspect-video bg-slate-950"><PreviewMedia asset={asset} /></div>
     </div>
   )
 }
 
 function PreviewMedia({ asset }: { asset: MediaAsset | null }) {
-  if (asset?.src && asset.kind === 'video') return <video src={asset.src} className="h-full w-full object-cover" muted controls />
-  if (asset?.src) return <img src={asset.src} alt="" className="h-full w-full object-cover" />
-  return <div className="flex h-full min-h-40 items-center justify-center text-slate-400"><ImagePlus className="h-6 w-6" /></div>
+  const [failed, setFailed] = useState(false)
+  useEffect(() => { setFailed(false) }, [asset?.id, asset?.src])
+  if (!asset?.src || failed) {
+    return <div className="flex h-full min-h-40 w-full items-center justify-center bg-slate-900 text-slate-400"><ImagePlus className="h-6 w-6" /></div>
+  }
+  if (asset.kind === 'video') {
+    return <video src={asset.src} className="h-full w-full bg-black object-contain" muted controls playsInline onError={() => setFailed(true)} />
+  }
+  return <img src={asset.src} alt="" className="h-full w-full bg-black object-contain" onError={() => setFailed(true)} />
 }

@@ -22,19 +22,31 @@ export function MediaLibraryPage() {
   const visible = media.filter((asset) => kind === 'all' || asset.kind === kind)
 
   async function onFiles(files: FileList | null) {
-    const file = files?.[0]
-    if (!file) return
-    if (file.size > 300 * 1024 * 1024) {
-      toast.error('Files must be 300 MB or smaller')
-      return
-    }
+    const list = [...(files ?? [])]
+    if (list.length === 0) return
+    const problems: string[] = []
+    let uploaded = 0
     setProgress(0)
     try {
-      const result = await uploadMedia(file, null, setProgress)
-      if (result.errors.length > 0) toast.error(result.errors[0] ?? 'This file needs a different format')
-      else toast.success('Media uploaded')
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Upload failed')
+      for (let index = 0; index < list.length; index += 1) {
+        const file = list[index]
+        if (!file) continue
+        if (file.size > 300 * 1024 * 1024) {
+          problems.push(`${file.name} is larger than 300 MB`)
+          continue
+        }
+        try {
+          const result = await uploadMedia(file, null, (percent) => {
+            setProgress(Math.round(((index + percent / 100) / list.length) * 100))
+          })
+          if (result.errors.length > 0) problems.push(`${file.name}: ${result.errors[0]}`)
+          else uploaded += 1
+        } catch (error) {
+          problems.push(`${file.name}: ${error instanceof Error ? error.message : 'Upload failed'}`)
+        }
+      }
+      if (uploaded > 0) toast.success(uploaded === 1 ? 'Media uploaded' : `${uploaded} files uploaded`)
+      if (problems.length > 0) toast.error(problems[0] ?? 'Upload failed')
     } finally {
       setProgress(null)
     }
@@ -50,6 +62,7 @@ export function MediaLibraryPage() {
       <input
         ref={inputRef}
         type="file"
+        multiple
         accept="image/jpeg,image/png,video/mp4,video/quicktime"
         className="sr-only"
         aria-label="Upload media"
