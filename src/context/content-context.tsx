@@ -78,6 +78,7 @@ function asMedia(raw: Record<string, unknown>): MediaAsset {
     name: String(raw.name ?? 'upload'),
     kind: raw.kind === 'video' ? 'video' : 'image',
     src: typeof raw.src === 'string' ? (raw.src.startsWith('http') ? raw.src : apiPath(raw.src)) : null,
+    captureSrc: typeof raw.captureSrc === 'string' ? (raw.captureSrc.startsWith('http') ? raw.captureSrc : apiPath(raw.captureSrc)) : null,
     tone: 'bg-slate-200',
     createdAt: String(raw.createdAt ?? new Date().toISOString()),
     sizeLabel: formatBytes(bytes),

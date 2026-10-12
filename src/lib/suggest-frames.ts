@@ -77,7 +77,16 @@ function framesFromVideo(src: string) {
   })
 }
 
-export function framesForCaption(asset: MediaAsset) {
-  if (!asset.src) return Promise.reject(new Error('Upload the file before asking for a caption.'))
-  return asset.kind === 'video' ? framesFromVideo(asset.src) : framesFromImage(asset.src)
+export async function framesForCaption(asset: MediaAsset) {
+  const remote = asset.captureSrc || asset.src
+  if (!remote) throw new Error('Upload the file before asking for a caption.')
+  const response = await fetch(remote, { credentials: 'include' })
+  if (!response.ok) throw new Error('Could not read this file.')
+  const blob = await response.blob()
+  const local = URL.createObjectURL(blob)
+  try {
+    return asset.kind === 'video' ? await framesFromVideo(local) : await framesFromImage(local)
+  } finally {
+    URL.revokeObjectURL(local)
+  }
 }

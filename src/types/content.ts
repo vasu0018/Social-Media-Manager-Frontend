@@ -99,6 +99,7 @@ export type MediaAsset = {
   name: string
   kind: 'video' | 'image'
   src: string | null
+  captureSrc?: string | null
   tone: string
   createdAt: string
   sizeLabel: string
