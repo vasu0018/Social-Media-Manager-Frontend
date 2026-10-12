@@ -1,4 +1,4 @@
-import { CalendarClock, CirclePlay, Clapperboard, FilePen, Image as ImageIcon, ImagePlus, Pause, Play, Send, Sparkles, Upload, Video, X } from 'lucide-react'
+import { CalendarClock, CirclePlay, Clapperboard, FilePen, Image as ImageIcon, ImagePlus, Pause, Play, Send, Sparkles, Upload, Video, Volume2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -767,10 +767,16 @@ function VideoFrame({ src, cover, poster, seekMs, onError }: { src: string; cove
     const video = videoRef.current
     if (!video) return
     if (video.paused) {
-      void video.play().then(() => setPlaying(true)).catch(() => setPlaying(false))
+      video.muted = false
+      video.volume = 1
+      void video.play().then(() => setPlaying(true)).catch(() => {
+        video.muted = true
+        setPlaying(false)
+      })
       return
     }
     video.pause()
+    video.muted = true
     setPlaying(false)
   }
 
@@ -780,7 +786,7 @@ function VideoFrame({ src, cover, poster, seekMs, onError }: { src: string; cove
         ref={videoRef}
         src={src}
         className={`h-full w-full bg-black ${cover ? 'object-cover' : 'object-contain'}`}
-        muted
+        muted={!playing}
         playsInline
         preload="auto"
         onLoadedData={(event) => showFrame(event.currentTarget)}
@@ -795,7 +801,10 @@ function VideoFrame({ src, cover, poster, seekMs, onError }: { src: string; cove
         </span>
       ) : null}
       {playing ? (
-        <span className="absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white"><Pause className="h-4 w-4" /></span>
+        <span className="absolute bottom-3 right-3 flex items-center gap-2">
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white"><Volume2 className="h-4 w-4" /></span>
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white"><Pause className="h-4 w-4" /></span>
+        </span>
       ) : null}
     </button>
   )
