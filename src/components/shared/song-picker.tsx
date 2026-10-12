@@ -90,10 +90,14 @@ export function SongPicker({
 
   useEffect(() => () => audioRef.current?.pause(), [])
 
+  function choose(track: Track) {
+    onChange({ id: track.id, title: track.title, artist: track.artist, audioVolume: value?.audioVolume ?? 100, videoVolume: value?.videoVolume ?? 60 })
+  }
+
   function play(track: Track) {
     setPlayError(null)
     if (!track.previewUrl) {
-      setPlayError('Instagram did not send a preview for this song. You can still select it for the Reel.')
+      choose(track)
       return
     }
     if (playingId === track.id) {
@@ -168,6 +172,7 @@ export function SongPicker({
           <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={type === 'music' ? 'Search songs or artists' : 'Search original audio'} aria-label="Search songs" />
           {loading ? <p className="text-sm text-muted-foreground">Loading songs…</p> : null}
           {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
+          <p className="text-xs text-muted-foreground">Songs with a play icon have a clip. Every song in the list can still be selected for the Reel.</p>
           {playError ? <p className="text-sm text-amber-800" role="status">{playError}</p> : null}
           <ul className="max-h-80 space-y-1 overflow-auto">
             {tracks.map((track) => {
@@ -175,19 +180,19 @@ export function SongPicker({
               return (
                 <li key={track.id}>
                   <div className={`flex items-center gap-3 rounded-lg px-2 py-2 ${selected ? 'bg-slate-100' : 'hover:bg-slate-50'}`}>
-                    <button type="button" className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md bg-slate-200" onClick={() => play(track)} aria-label={playingId === track.id ? 'Pause preview' : 'Play preview'}>
+                    <button type="button" className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md bg-slate-200" onClick={() => play(track)} aria-label={track.previewUrl ? (playingId === track.id ? 'Pause preview' : 'Play preview') : 'Select song'}>
                       {track.artworkUrl ? <img src={mediaAddress(track.artworkUrl)} alt="" className="h-full w-full object-cover" /> : null}
                       <span className="absolute inset-0 flex items-center justify-center bg-black/25 text-white">
-                        {loadingId === track.id ? <Loader2 className="h-4 w-4 animate-spin" /> : playingId === track.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                        {!track.previewUrl ? <Music2 className="h-4 w-4" /> : loadingId === track.id ? <Loader2 className="h-4 w-4 animate-spin" /> : playingId === track.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                       </span>
                     </button>
                     <button
                       type="button"
                       className="min-w-0 flex-1 text-left"
-                      onClick={() => onChange({ id: track.id, title: track.title, artist: track.artist, audioVolume: value?.audioVolume ?? 100, videoVolume: value?.videoVolume ?? 60 })}
+                      onClick={() => choose(track)}
                     >
                       <span className="block truncate text-sm font-semibold">{track.title}</span>
-                      <span className="block truncate text-xs text-muted-foreground">{[track.artist, lengthLabel(track.durationMs)].filter(Boolean).join(' · ')}</span>
+                      <span className="block truncate text-xs text-muted-foreground">{[track.artist, lengthLabel(track.durationMs), track.previewUrl ? null : 'No clip'].filter(Boolean).join(' · ')}</span>
                     </button>
                     {selected ? <Check className="h-4 w-4 shrink-0 text-slate-900" aria-label="Selected" /> : null}
                   </div>
@@ -205,7 +210,7 @@ export function SongPicker({
               <label className="block text-xs text-slate-600">Song volume {value.audioVolume}
                 <input className="mt-1 w-full" type="range" min={1} max={100} value={value.audioVolume} onChange={(event) => onChange({ ...value, audioVolume: Number(event.target.value) })} />
               </label>
-              {facebookToo ? <p className="text-xs text-slate-600">Instagram publishes with this song. Facebook keeps the audio already inside the video.</p> : null}
+              {facebookToo ? <p className="text-xs text-slate-600">Instagram publishes this Reel with the song. Facebook publishes the same video with the sound already in the file.</p> : null}
               <label className="block text-xs text-slate-600">Original audio {value.videoVolume}
                 <input className="mt-1 w-full" type="range" min={1} max={100} value={value.videoVolume} onChange={(event) => onChange({ ...value, videoVolume: Number(event.target.value) })} />
               </label>

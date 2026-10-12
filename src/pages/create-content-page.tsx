@@ -1,5 +1,5 @@
-import { CalendarClock, CirclePlay, Clapperboard, FilePen, Image as ImageIcon, ImagePlus, Send, Upload, Video, X } from 'lucide-react'
-import { useEffect, useMemo, useState, type DragEvent } from 'react'
+import { CalendarClock, CirclePlay, Clapperboard, FilePen, Image as ImageIcon, ImagePlus, Pause, Play, Send, Upload, Video, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
@@ -447,7 +447,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
               <CardContent>
                 {platform === 'instagram'
                   ? <InstagramPreview story={kind === 'story' || kind === 'reel'} caption={previewCaption} asset={asset} />
-                  : <FacebookPreview caption={previewCaption} asset={asset} name={accounts.find((account) => account.id === accountIds.facebook)?.name ?? 'Facebook Page'} />}
+                  : <FacebookPreview tall={kind === 'story' || kind === 'reel'} caption={previewCaption} asset={asset} name={accounts.find((account) => account.id === accountIds.facebook)?.name ?? 'Facebook Page'} />}
               </CardContent>
             </Card>
           ))}
@@ -483,14 +483,14 @@ function InstagramPreview({ story, caption, asset }: { story: boolean; caption: 
   return (
     <div className={`mx-auto overflow-hidden rounded-[28px] border bg-black text-white shadow-sm ${story ? 'relative aspect-[9/16] w-full max-w-[260px]' : 'w-full max-w-[320px]'}`}>
       <div className={story ? 'absolute inset-0' : 'relative aspect-square'}>
-        <PreviewMedia asset={asset} />
+        <PreviewMedia asset={asset} cover={story} />
       </div>
       {story ? null : <p className="max-h-28 overflow-hidden whitespace-pre-wrap bg-black px-3 py-2 text-xs">{caption || 'Caption preview'}</p>}
     </div>
   )
 }
 
-function FacebookPreview({ caption, asset, name }: { caption: string; asset: MediaAsset | null; name: string }) {
+function FacebookPreview({ tall, caption, asset, name }: { tall: boolean; caption: string; asset: MediaAsset | null; name: string }) {
   return (
     <div className="overflow-hidden rounded-xl border bg-white">
       <div className="flex items-center gap-2 px-3 py-2">
@@ -498,19 +498,72 @@ function FacebookPreview({ caption, asset, name }: { caption: string; asset: Med
         <span className="text-sm font-semibold">{name}</span>
       </div>
       <p className="whitespace-pre-wrap px-3 pb-2 text-sm">{caption || 'Caption preview'}</p>
-      <div className="relative aspect-video bg-slate-950"><PreviewMedia asset={asset} /></div>
+      <div className={tall ? 'relative mx-auto aspect-[9/16] w-full max-w-[260px] bg-black' : 'relative aspect-video bg-slate-950'}>
+        <div className="absolute inset-0"><PreviewMedia asset={asset} cover={tall} /></div>
+      </div>
     </div>
   )
 }
 
-function PreviewMedia({ asset }: { asset: MediaAsset | null }) {
+function PreviewMedia({ asset, cover = true }: { asset: MediaAsset | null; cover?: boolean }) {
   const [failed, setFailed] = useState(false)
   useEffect(() => { setFailed(false) }, [asset?.id, asset?.src])
   if (!asset?.src || failed) {
     return <div className="flex h-full min-h-40 w-full items-center justify-center bg-slate-900 text-slate-400"><ImagePlus className="h-6 w-6" /></div>
   }
-  if (asset.kind === 'video') {
-    return <video src={asset.src} className="h-full w-full bg-black object-contain" muted controls playsInline onError={() => setFailed(true)} />
+  if (asset.kind === 'video') return <VideoFrame src={asset.src} cover={cover} onError={() => setFailed(true)} />
+  return <img src={asset.src} alt="" className={`h-full w-full bg-black ${cover ? 'object-cover' : 'object-contain'}`} onError={() => setFailed(true)} />
+}
+
+function VideoFrame({ src, cover, onError }: { src: string; cover: boolean; onError: () => void }) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [ready, setReady] = useState(false)
+  const [playing, setPlaying] = useState(false)
+  useEffect(() => {
+    setReady(false)
+    setPlaying(false)
+  }, [src])
+
+  function showFrame(video: HTMLVideoElement) {
+    if (!Number.isFinite(video.duration) || video.duration <= 0) return
+    const point = Math.min(0.4, video.duration * 0.12)
+    if (video.currentTime < 0.05) video.currentTime = point
+    setReady(true)
   }
-  return <img src={asset.src} alt="" className="h-full w-full bg-black object-contain" onError={() => setFailed(true)} />
+
+  function toggle() {
+    const video = videoRef.current
+    if (!video) return
+    if (video.paused) {
+      void video.play().then(() => setPlaying(true)).catch(() => setPlaying(false))
+      return
+    }
+    video.pause()
+    setPlaying(false)
+  }
+
+  return (
+    <button type="button" className="relative block h-full w-full" onClick={toggle} aria-label={playing ? 'Pause reel preview' : 'Play reel preview'}>
+      <video
+        ref={videoRef}
+        src={src}
+        className={`h-full w-full bg-black ${cover ? 'object-cover' : 'object-contain'}`}
+        muted
+        playsInline
+        preload="auto"
+        onLoadedData={(event) => showFrame(event.currentTarget)}
+        onError={onError}
+        onEnded={() => setPlaying(false)}
+      />
+      {ready ? null : <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs text-white">Loading preview…</span>}
+      {ready && !playing ? (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/55 text-white"><Play className="h-5 w-5" /></span>
+        </span>
+      ) : null}
+      {playing ? (
+        <span className="absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white"><Pause className="h-4 w-4" /></span>
+      ) : null}
+    </button>
+  )
 }
