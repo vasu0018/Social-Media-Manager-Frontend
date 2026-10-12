@@ -12,11 +12,25 @@ type SaveContentInput = {
   hashtags: string
   firstComment: string | null
   audio?: { id: string; title: string; artist: string | null; audioVolume: number; videoVolume: number } | null
+  coverMediaId?: string | null
+  thumbOffsetMs?: number | null
   destinations: Array<{ platform: 'instagram' | 'facebook'; accountId: string; format: string }>
   mediaId: string | null
   action: 'draft' | 'schedule' | 'publish'
   scheduledAt: string | null
   timezone: string
+}
+
+type ContentPatch = {
+  title?: string
+  caption?: string
+  hashtags?: string
+  firstComment?: string | null
+  mediaId?: string | null
+  coverMediaId?: string | null
+  thumbOffsetMs?: number | null
+  audio?: SaveContentInput['audio']
+  destinations?: SaveContentInput['destinations']
 }
 
 type ContentContextValue = {
@@ -27,7 +41,9 @@ type ContentContextValue = {
   loading: boolean
   refresh: () => Promise<void>
   saveContent: (input: SaveContentInput) => Promise<ContentItem>
-  updateContent: (id: string, patch: { title?: string; caption?: string; hashtags?: string; firstComment?: string | null }) => Promise<void>
+  updateContent: (id: string, patch: ContentPatch) => Promise<ContentItem>
+  scheduleItem: (id: string, scheduledAt: string, timezone: string) => Promise<ContentItem>
+  publishItem: (id: string) => Promise<ContentItem>
   reschedule: (id: string, scheduledAt: string, timezone: string) => Promise<void>
   deleteItem: (id: string) => void
   duplicateItem: (id: string) => void
@@ -87,7 +103,7 @@ export function ContentProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     const [content, accountData, mediaData] = await Promise.all([
-      api<{ items: ContentItem[] }>('/api/content?pageSize=100'),
+      api<{ items: ContentItem[] }>('/api/content?pageSize=200'),
       api<{ accounts: SocialAccount[] }>('/api/accounts'),
       api<{ media: Record<string, unknown>[] }>('/api/media'),
     ])
@@ -166,6 +182,24 @@ export function ContentProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify(patch),
       })
       setItems((current) => current.map((item) => item.id === id ? data.item : item))
+      return data.item
+    },
+    scheduleItem: async (id, scheduledAt, timezone) => {
+      const data = await api<{ item: ContentItem }>(`/api/content/${id}/schedule`, {
+        method: 'POST',
+        body: JSON.stringify({ scheduledAt, timezone }),
+      })
+      setItems((current) => current.map((item) => item.id === id ? data.item : item))
+      void refresh().catch(() => undefined)
+      return data.item
+    },
+    publishItem: async (id) => {
+      const data = await api<{ item: ContentItem }>(`/api/content/${id}/publish`, {
+        method: 'POST',
+      })
+      setItems((current) => current.map((item) => item.id === id ? data.item : item))
+      void refresh().catch(() => undefined)
+      return data.item
     },
     reschedule: async (id, scheduledAt, timezone) => {
       const data = await api<{ item: ContentItem }>(`/api/content/${id}/reschedule`, {
@@ -202,6 +236,7 @@ export function ContentProvider({ children }: { children: ReactNode }) {
         .then((data) => {
           setItems((current) => current.map((item) => item.id === id ? data.item : item))
           toast('Publishing is running on the server. A result appears when Meta confirms it.')
+          void refresh().catch(() => undefined)
         })
         .catch((error) => toast.error(message(error)))
     },

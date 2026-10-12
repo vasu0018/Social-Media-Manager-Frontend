@@ -1,5 +1,6 @@
 import { CalendarClock, Copy, ExternalLink, Eye, Inbox, MoreHorizontal, Pencil, RotateCcw, Trash2, Upload, XCircle } from 'lucide-react'
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { ContentPreviewDialog } from '@/components/shared/content-preview'
@@ -211,9 +212,11 @@ function RowMenu({
         <DropdownMenuItem onSelect={() => onPreview(item)}>
           <Eye className="h-4 w-4" /> View details
         </DropdownMenuItem>
-        {item.status === 'draft' ? (
-          <DropdownMenuItem onSelect={() => onPreview(item)}>
-            <Pencil className="h-4 w-4" /> Edit draft
+        {item.status === 'draft' || status === 'scheduled' ? (
+          <DropdownMenuItem asChild>
+            <Link to={`/content/${item.id}/edit`}>
+              <Pencil className="h-4 w-4" /> Edit
+            </Link>
           </DropdownMenuItem>
         ) : null}
         {status === 'scheduled' ? (

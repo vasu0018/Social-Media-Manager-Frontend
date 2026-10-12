@@ -1,19 +1,22 @@
-import { CalendarClock, CirclePlay, Clapperboard, FilePen, Image as ImageIcon, ImagePlus, Pause, Play, Send, Upload, Video, X } from 'lucide-react'
+import { CalendarClock, CirclePlay, Clapperboard, FilePen, Image as ImageIcon, ImagePlus, Pause, Play, Send, Sparkles, Upload, Video, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { Hint, HintButton } from '@/components/shared/hint'
 import { Field } from '@/components/shared/field'
 import { SongPicker, type SongChoice } from '@/components/shared/song-picker'
 import { PageHeader } from '@/components/shared/page-header'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { NativeSelect } from '@/components/ui/native-select'
 import { Textarea } from '@/components/ui/textarea'
 import { useContent } from '@/context/content-context'
 import { usePageTitle } from '@/hooks/use-page-title'
+import { api } from '@/lib/api'
 import { composerFormats, probeFile, validateLocalMedia } from '@/lib/formats'
+import { framesForCaption } from '@/lib/suggest-frames'
 import { formatInZone, zonedToUtc } from '@/lib/time'
 import { timezones } from '@/data/mock'
 import type { MediaAsset, Platform, SocialAccount } from '@/types/content'
@@ -51,6 +54,32 @@ function supportMessage(kind: Kind, platform: Platform, account: SocialAccount |
     : 'Facebook photo and video Stories are supported for this Page.'
 }
 
+function listRoute(kind: Kind) {
+  if (kind === 'story') return '/stories'
+  if (kind === 'reel') return '/reels'
+  return '/posts'
+}
+
+function kindFromType(type: string): Kind {
+  if (type === 'story' || type === 'reel' || type === 'image') return type
+  return 'video'
+}
+
+function partsInZone(iso: string, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(iso))
+  const pick = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
+  const hour = pick('hour') === '24' ? '00' : pick('hour')
+  return { date: `${pick('year')}-${pick('month')}-${pick('day')}`, time: `${hour.padStart(2, '0')}:${pick('minute').padStart(2, '0')}` }
+}
+
 function initialKind(story: boolean, value: string | null): Kind {
   if (story || value === 'story') return 'story'
   if (value === 'image' || value === 'video' || value === 'reel') return value
@@ -59,9 +88,13 @@ function initialKind(story: boolean, value: string | null): Kind {
 
 export function CreateContentPage({ story = false }: { story?: boolean }) {
   const [params, setParams] = useSearchParams()
-  usePageTitle(story ? 'Create Story' : 'Create Content')
+  const { id: editId } = useParams()
+  const editing = Boolean(editId)
+  usePageTitle(editing ? 'Edit content' : story ? 'Create Story' : 'Create Content')
   const navigate = useNavigate()
-  const { accounts, media, settings, saveContent, uploadMedia, refresh } = useContent()
+  const { accounts, items, media, settings, loading, saveContent, updateContent, scheduleItem, publishItem, uploadMedia, refresh } = useContent()
+  const existing = editId ? items.find((item) => item.id === editId) ?? null : null
+  const [hydrated, setHydrated] = useState(!editId)
   const [kind, setKind] = useState<Kind>(() => initialKind(story, params.get('kind')))
   const [platforms, setPlatforms] = useState<Record<Platform, boolean>>({ instagram: true, facebook: false })
   const [accountIds, setAccountIds] = useState<Record<Platform, string>>({ instagram: '', facebook: '' })
@@ -70,6 +103,9 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
   const [hashtags, setHashtags] = useState('')
   const [firstComment, setFirstComment] = useState('')
   const [song, setSong] = useState<SongChoice | null>(null)
+  const [cover, setCover] = useState<MediaAsset | null>(null)
+  const [thumbOffsetMs, setThumbOffsetMs] = useState(0)
+  const [coverBusy, setCoverBusy] = useState(false)
   const [batch, setBatch] = useState<MediaAsset[]>([])
   const [mediaId, setMediaId] = useState<string | null>(null)
   const [date, setDate] = useState('')
@@ -83,6 +119,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
   const [dragging, setDragging] = useState(false)
   const [confirm, setConfirm] = useState<'publish' | 'schedule' | null>(null)
   const [saving, setSaving] = useState(false)
+  const [suggesting, setSuggesting] = useState(false)
 
   useEffect(() => {
     if (params.get('connected') !== 'facebook') return
@@ -92,6 +129,40 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
     next.delete('connected')
     setParams(next, { replace: true })
   }, [params, refresh, setParams])
+
+  useEffect(() => {
+    if (!editId || !existing || hydrated) return
+    setKind(kindFromType(existing.type))
+    setTitle(existing.title)
+    setCaption(existing.caption)
+    setHashtags(existing.hashtags ?? '')
+    setFirstComment(existing.firstComment ?? '')
+    setPlatforms({
+      instagram: existing.platforms.includes('instagram'),
+      facebook: existing.platforms.includes('facebook'),
+    })
+    setAccountIds({
+      instagram: existing.publications?.find((entry) => entry.platform === 'instagram')?.accountId ?? '',
+      facebook: existing.publications?.find((entry) => entry.platform === 'facebook')?.accountId ?? '',
+    })
+    setMediaId(existing.mediaId)
+    const attached = media.find((entry) => entry.id === existing.mediaId)
+    if (attached) setBatch([attached])
+    if (existing.audio) setSong(existing.audio)
+    if (existing.coverMediaId) {
+      const coverAsset = media.find((entry) => entry.id === existing.coverMediaId)
+      if (coverAsset) setCover(coverAsset)
+    }
+    if (existing.thumbOffsetMs) setThumbOffsetMs(existing.thumbOffsetMs)
+    const zone = existing.timezone || 'Asia/Kolkata'
+    setTimezone(zone)
+    if (existing.scheduledAt) {
+      const parts = partsInZone(existing.scheduledAt, zone)
+      setDate(parts.date)
+      setTime(parts.time)
+    }
+    setHydrated(true)
+  }, [editId, existing, hydrated, media])
 
   const selected = (['instagram', 'facebook'] as const).filter((platform) => platforms[platform])
   const songEnabled = (kind === 'reel' || kind === 'video') && platforms.instagram
@@ -103,6 +174,30 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
 
   const previewCaption = useMemo(() => [caption.trim(), hashtags.trim()].filter(Boolean).join('\n\n'), [caption, hashtags])
 
+  async function suggestCopy() {
+    if (!asset?.src) {
+      toast.error(kind === 'reel' ? 'Upload the reel first.' : 'Upload the post first.')
+      return
+    }
+    setSuggesting(true)
+    setCaptionError(null)
+    setHashtagError(null)
+    try {
+      const images = await framesForCaption(asset)
+      const result = await api<{ caption: string; hashtags: string[] }>('/api/ai/caption', {
+        method: 'POST',
+        body: JSON.stringify({ kind, images }),
+      })
+      setCaption(result.caption)
+      setHashtags(result.hashtags.join(' '))
+      toast.success(kind === 'reel' ? 'Reel caption and hashtags are ready. Edit them if you want.' : kind === 'video' ? 'Feed video caption and hashtags are ready. Edit them if you want.' : 'Post caption and hashtags are ready. Edit them if you want.')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not write a caption.')
+    } finally {
+      setSuggesting(false)
+    }
+  }
+
   function accountProblem(account: SocialAccount, platform: Platform) {
     const blocked = supportMessage(kind, platform, account)
     if (kind === 'story' && blocked?.startsWith('Not supported')) return blocked
@@ -110,6 +205,32 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
     if (account.tokenStatus === 'expired' || account.tokenStatus === 'revoked') return 'Reconnect required'
     if (account.eligible === false) return account.eligibilityReason || 'Not eligible'
     return null
+  }
+
+  async function onCover(file: File | undefined) {
+    if (!file) return
+    if (file.type !== 'image/jpeg' && file.type !== 'image/png') {
+      setFieldError('The cover must be a JPEG or PNG photo.')
+      return
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setFieldError('The cover must be 8 MB or smaller.')
+      return
+    }
+    setCoverBusy(true)
+    setFieldError(null)
+    try {
+      const uploaded = await uploadMedia(file, null, () => undefined)
+      if (uploaded.media.kind !== 'image') {
+        setFieldError('The cover must be a photo.')
+        return
+      }
+      setCover(uploaded.media)
+    } catch (error) {
+      setFieldError(error instanceof Error ? error.message : 'Could not upload the cover.')
+    } finally {
+      setCoverBusy(false)
+    }
   }
 
   async function onFiles(files: File[]) {
@@ -177,49 +298,63 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
     const tags = preparedHashtags()
     const needsCopy = kind !== 'story'
     if (action !== 'draft' && needsCopy && !caption.trim()) {
-      setCaptionError(kind === 'reel' ? 'Write the caption that should appear on this reel.' : 'Write the caption for this post.')
+      const message = kind === 'reel' ? 'Write the caption that should appear on this reel.' : 'Write the caption for this post.'
+      setCaptionError(message)
+      toast.error(message)
       return false
     }
     if (action !== 'draft' && needsCopy && tags.length === 0) {
-      setHashtagError(kind === 'reel' ? 'Add the hashtags for this reel, such as #studio #reel.' : 'Add the hashtags for this post, such as #studio #reel.')
+      const message = kind === 'reel' ? 'Add the hashtags for this reel, such as #studio #reel.' : 'Add the hashtags for this post, such as #studio #reel.'
+      setHashtagError(message)
+      toast.error(message)
       return false
     }
     if (selected.includes('instagram') && tags.length > 30) {
       setHashtagError('Instagram allows up to 30 hashtags.')
+      toast.error('Instagram allows up to 30 hashtags.')
       return false
     }
     if (title.trim().length < 2) {
       setFieldError('Enter an internal title with at least 2 characters.')
+      toast.error('Enter an internal title with at least 2 characters.')
       return false
     }
     if (action !== 'draft' && selected.length === 0) {
       setFieldError('Select at least one platform.')
+      toast.error('Select at least one platform.')
       return false
     }
     if (action !== 'draft') {
       for (const platform of selected) {
         const account = accounts.find((entry) => entry.id === accountIds[platform])
         if (!account) {
-          setFieldError(`Choose an eligible ${platform === 'instagram' ? 'Instagram' : 'Facebook'} account.`)
+          const message = `Choose an eligible ${platform === 'instagram' ? 'Instagram' : 'Facebook'} account.`
+          setFieldError(message)
+          toast.error(message)
           return false
         }
         const problem = accountProblem(account, platform)
         if (problem) {
           setFieldError(problem)
+          toast.error(problem)
           return false
         }
       }
-      if (batch.length === 0) {
-        setFieldError(errors[0] ?? 'Upload a file that meets every selected platform.')
+      if (batch.length === 0 && !mediaId) {
+        const message = errors[0] ?? 'Upload a file that meets every selected platform.'
+        setFieldError(message)
+        toast.error(message)
         return false
       }
     }
     if (action === 'schedule' && !scheduledAt) {
       setFieldError('Choose a publication date, time, and timezone.')
+      toast.error('Choose a publication date, time, and timezone.')
       return false
     }
     if (scheduledAt && scheduledAt.getTime() < Date.now() + 60_000 && action === 'schedule') {
       setFieldError('Choose a time at least a minute from now.')
+      toast.error('Choose a time at least a minute from now.')
       return false
     }
     return true
@@ -232,6 +367,30 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
     }
     setSaving(true)
     try {
+      if (editId) {
+        await updateContent(editId, {
+          title: title.trim(),
+          caption: caption.trim(),
+          hashtags: preparedHashtags().join(' '),
+          firstComment: firstCommentAllowed ? firstComment.trim() || null : null,
+          audio: songEnabled ? song : null,
+          coverMediaId: kind === 'reel' || kind === 'video' ? cover?.id ?? null : null,
+          thumbOffsetMs: (kind === 'reel' || kind === 'video') && !cover ? thumbOffsetMs : null,
+          mediaId: batch[0]?.id ?? mediaId,
+          destinations: selected.map((platform) => ({
+            platform,
+            accountId: accountIds[platform],
+            format: formatId(kind, platform),
+          })),
+        })
+        if (action === 'schedule' && scheduledAt) await scheduleItem(editId, scheduledAt.toISOString(), timezone)
+        if (action === 'publish') await publishItem(editId)
+        if (action === 'publish') toast('Publishing is running on the server. A result appears when Meta confirms it.')
+        else if (action === 'schedule') toast.success(`Scheduled for ${nextRun}`)
+        else toast.success('Draft saved')
+        navigate(action === 'schedule' ? '/scheduled' : action === 'publish' ? '/history' : listRoute(kind))
+        return
+      }
       const files = batch.length > 0 ? batch : [null]
       for (const file of files) {
         const fileTitle = file && files.length > 1
@@ -243,6 +402,8 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
           hashtags: preparedHashtags().join(' '),
           firstComment: firstCommentAllowed ? firstComment.trim() || null : null,
           audio: songEnabled ? song : null,
+          coverMediaId: kind === 'reel' || kind === 'video' ? cover?.id ?? null : null,
+          thumbOffsetMs: (kind === 'reel' || kind === 'video') && !cover ? thumbOffsetMs : null,
           destinations: selected.map((platform) => ({
             platform,
             accountId: accountIds[platform],
@@ -259,18 +420,32 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
       else toast.success(action === 'draft' ? (files.length > 1 ? `${files.length} drafts saved` : 'Draft saved') : `${countLabel} scheduled for ${nextRun}`)
       navigate(action === 'draft' ? '/content' : action === 'schedule' ? '/scheduled' : '/history')
     } catch (error) {
-      setFieldError(error instanceof Error ? error.message : 'Could not save this content.')
+      const message = error instanceof Error ? error.message : 'Could not save this content.'
+      setFieldError(message)
+      toast.error(message)
     } finally {
       setSaving(false)
       setConfirm(null)
     }
   }
 
+  if (editing && !existing) {
+    return <p className="text-sm text-muted-foreground">{loading ? 'Loading this draft…' : 'This item is not in the workspace.'}</p>
+  }
+  if (existing && existing.status !== 'draft' && existing.status !== 'scheduled') {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm">This item is {existing.status.replaceAll('_', ' ')}. Repost it as a new draft if you want to publish it again.</p>
+        <Button asChild><Link to={listRoute(kindFromType(existing.type))}>Back to the list</Link></Button>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
-        title={story ? 'Upload a story' : 'Upload a reel or story'}
-        description="The file is already made. Drop it here, choose Instagram, Facebook, or both, then publish now or pick a time."
+        title={editing ? 'Edit this draft' : story ? 'Upload a story' : 'Upload a reel or story'}
+        description={editing ? 'Change the caption, hashtags, cover, or time, then save, schedule, or publish. Instagram and Facebook stay on the destinations you already chose.' : 'The file is already made. Drop it here, choose Instagram, Facebook, or both, then publish now or pick a time.'}
       />
       <form className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]" onSubmit={(event) => event.preventDefault()}>
         <div className="space-y-4">
@@ -285,7 +460,8 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
                   <Hint key={entry.id} className="w-full" detail={`${entry.label}: ${entry.hint}. Hover explains the choice. Click to select it before you upload.`}>
                   <button
                     type="button"
-                    onClick={() => { setKind(entry.id); setErrors([]) }}
+                    disabled={editing}
+                    onClick={() => { if (!editing) { setKind(entry.id); setErrors([]) } }}
                     className={`w-full rounded-xl border-2 bg-white p-3.5 text-left ${active ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-200 hover:border-slate-300'}`}
                   >
                     <Icon className={`mb-2 h-5 w-5 ${entry.iconClass}`} />
@@ -348,15 +524,57 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
             ) : null}
             {errors.length > 0 ? <ul className="space-y-1 text-sm text-destructive" role="alert">{errors.map((error) => <li key={error}>{error}</li>)}</ul> : null}
           </div>
+          {kind === 'reel' || kind === 'video' ? (
+            <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div>
+                <StepLabel n={story ? 2 : 3} title="Cover" />
+                <p className="text-xs text-muted-foreground">This picture is the Reel cover. Drag the video to a moment, or upload a JPEG or PNG photo. A photo replaces the frame.</p>
+              </div>
+              {asset?.kind === 'video' && asset.durationMs ? (
+                <label className="block space-y-1 text-sm">
+                  <span>Frame at {(Math.min(thumbOffsetMs, asset.durationMs) / 1000).toFixed(1)}s</span>
+                  <input
+                    type="range"
+                    className="w-full"
+                    min={0}
+                    max={asset.durationMs}
+                    step={100}
+                    value={Math.min(thumbOffsetMs, asset.durationMs)}
+                    disabled={Boolean(cover)}
+                    onChange={(event) => setThumbOffsetMs(Number(event.target.value))}
+                  />
+                </label>
+              ) : (
+                <p className="text-xs text-muted-foreground">Upload the Reel first, then pick the frame.</p>
+              )}
+              <div className="flex items-center gap-3">
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium">
+                  <ImagePlus className="h-4 w-4" />
+                  {coverBusy ? 'Uploading cover…' : 'Upload cover photo'}
+                  <input type="file" accept="image/jpeg,image/png" className="sr-only" disabled={coverBusy} onChange={(event) => { void onCover(event.target.files?.[0]); event.target.value = '' }} />
+                </label>
+                {cover ? (
+                  <button type="button" className="text-sm font-medium text-slate-600" onClick={() => setCover(null)}>Use the video frame</button>
+                ) : null}
+              </div>
+              {cover?.src ? <img src={cover.src} alt="" className="h-28 w-16 rounded-lg object-cover" /> : null}
+            </section>
+          ) : null}
           <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div>
-              <StepLabel n={story ? 2 : 3} title={kind === 'story' ? 'Caption and hashtags' : kind === 'reel' ? 'Caption and hashtags for this reel' : 'Caption and hashtags for this post'} />
+              <StepLabel n={story ? 2 : kind === 'reel' || kind === 'video' ? 4 : 3} title={kind === 'story' ? 'Caption and hashtags' : kind === 'reel' ? 'Caption and hashtags for this reel' : 'Caption and hashtags for this post'} />
               <p className="text-xs text-muted-foreground">
                 {kind === 'story'
                   ? 'Stories publish the file itself. A caption is not sent with an Instagram or Facebook Story.'
                   : 'This text is published with the file. Hashtags are placed after the caption.'}
               </p>
             </div>
+            {kind === 'story' ? null : (
+              <Button type="button" variant="outline" disabled={suggesting} onClick={() => void suggestCopy()}>
+                <Sparkles className="h-4 w-4" />
+                {suggesting ? 'Reading the file…' : 'AI caption & hashtags'}
+              </Button>
+            )}
             <Field label="Caption" htmlFor="caption" error={captionError ?? undefined} hint={kind === 'story' ? 'Optional for Stories.' : 'Required before you schedule or publish.'}>
               <Textarea id="caption" value={caption} rows={5} maxLength={2200} onChange={(event) => { setCaption(event.target.value); setCaptionError(null) }} placeholder={kind === 'reel' ? 'Write what should appear under the reel' : 'Write the caption'} />
             </Field>
@@ -370,7 +588,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
             </Field>
           </div>
           <fieldset className="space-y-3">
-            <legend className="text-sm font-medium"><StepLabel n={story ? 3 : 4} title="Choose Instagram, Facebook, or both" /></legend>
+            <legend className="text-sm font-medium"><StepLabel n={story ? 3 : kind === 'reel' || kind === 'video' ? 5 : 4} title="Choose Instagram, Facebook, or both" /></legend>
             {(['instagram', 'facebook'] as const).map((platform) => {
               const format = composerFormats.find((entry) => entry.id === formatId(kind, platform))
               const choices = accounts.filter((account) => account.platform === platform)
@@ -446,8 +664,8 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
               <CardHeader><CardTitle>{platform === 'instagram' ? 'Instagram preview' : 'Facebook preview'}</CardTitle></CardHeader>
               <CardContent>
                 {platform === 'instagram'
-                  ? <InstagramPreview story={kind === 'story' || kind === 'reel'} caption={previewCaption} asset={asset} />
-                  : <FacebookPreview tall={kind === 'story' || kind === 'reel'} caption={previewCaption} asset={asset} name={accounts.find((account) => account.id === accountIds.facebook)?.name ?? 'Facebook Page'} />}
+                  ? <InstagramPreview story={kind === 'story' || kind === 'reel'} caption={previewCaption} asset={asset} poster={(kind === 'reel' || kind === 'video') && cover?.src ? cover.src : null} seekMs={kind === 'reel' || kind === 'video' ? thumbOffsetMs : undefined} />
+                  : <FacebookPreview tall={kind === 'story' || kind === 'reel'} caption={previewCaption} asset={asset} poster={(kind === 'reel' || kind === 'video') && cover?.src ? cover.src : null} seekMs={kind === 'reel' || kind === 'video' ? thumbOffsetMs : undefined} name={accounts.find((account) => account.id === accountIds.facebook)?.name ?? 'Facebook Page'} />}
               </CardContent>
             </Card>
           ))}
@@ -479,18 +697,18 @@ function StepLabel({ n, title }: { n: number; title: string }) {
   )
 }
 
-function InstagramPreview({ story, caption, asset }: { story: boolean; caption: string; asset: MediaAsset | null }) {
+function InstagramPreview({ story, caption, asset, poster, seekMs }: { story: boolean; caption: string; asset: MediaAsset | null; poster?: string | null; seekMs?: number }) {
   return (
     <div className={`mx-auto overflow-hidden rounded-[28px] border bg-black text-white shadow-sm ${story ? 'relative aspect-[9/16] w-full max-w-[260px]' : 'w-full max-w-[320px]'}`}>
       <div className={story ? 'absolute inset-0' : 'relative aspect-square'}>
-        <PreviewMedia asset={asset} cover={story} />
+        <PreviewMedia asset={asset} cover={story} poster={poster} seekMs={seekMs} />
       </div>
       {story ? null : <p className="max-h-28 overflow-hidden whitespace-pre-wrap bg-black px-3 py-2 text-xs">{caption || 'Caption preview'}</p>}
     </div>
   )
 }
 
-function FacebookPreview({ tall, caption, asset, name }: { tall: boolean; caption: string; asset: MediaAsset | null; name: string }) {
+function FacebookPreview({ tall, caption, asset, name, poster, seekMs }: { tall: boolean; caption: string; asset: MediaAsset | null; name: string; poster?: string | null; seekMs?: number }) {
   return (
     <div className="overflow-hidden rounded-xl border bg-white">
       <div className="flex items-center gap-2 px-3 py-2">
@@ -499,23 +717,23 @@ function FacebookPreview({ tall, caption, asset, name }: { tall: boolean; captio
       </div>
       <p className="whitespace-pre-wrap px-3 pb-2 text-sm">{caption || 'Caption preview'}</p>
       <div className={tall ? 'relative mx-auto aspect-[9/16] w-full max-w-[260px] bg-black' : 'relative aspect-video bg-slate-950'}>
-        <div className="absolute inset-0"><PreviewMedia asset={asset} cover={tall} /></div>
+        <div className="absolute inset-0"><PreviewMedia asset={asset} cover={tall} poster={poster} seekMs={seekMs} /></div>
       </div>
     </div>
   )
 }
 
-function PreviewMedia({ asset, cover = true }: { asset: MediaAsset | null; cover?: boolean }) {
+function PreviewMedia({ asset, cover = true, poster, seekMs }: { asset: MediaAsset | null; cover?: boolean; poster?: string | null; seekMs?: number }) {
   const [failed, setFailed] = useState(false)
   useEffect(() => { setFailed(false) }, [asset?.id, asset?.src])
   if (!asset?.src || failed) {
     return <div className="flex h-full min-h-40 w-full items-center justify-center bg-slate-900 text-slate-400"><ImagePlus className="h-6 w-6" /></div>
   }
-  if (asset.kind === 'video') return <VideoFrame src={asset.src} cover={cover} onError={() => setFailed(true)} />
+  if (asset.kind === 'video') return <VideoFrame src={asset.src} cover={cover} poster={poster} seekMs={seekMs} onError={() => setFailed(true)} />
   return <img src={asset.src} alt="" className={`h-full w-full bg-black ${cover ? 'object-cover' : 'object-contain'}`} onError={() => setFailed(true)} />
 }
 
-function VideoFrame({ src, cover, onError }: { src: string; cover: boolean; onError: () => void }) {
+function VideoFrame({ src, cover, poster, seekMs, onError }: { src: string; cover: boolean; poster?: string | null; seekMs?: number; onError: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [ready, setReady] = useState(false)
   const [playing, setPlaying] = useState(false)
@@ -524,12 +742,26 @@ function VideoFrame({ src, cover, onError }: { src: string; cover: boolean; onEr
     setPlaying(false)
   }, [src])
 
+  function frameSeconds(video: HTMLVideoElement) {
+    const requested = (seekMs ?? 400) / 1000
+    return Math.min(Math.max(requested, 0), Math.max(video.duration - 0.05, 0))
+  }
+
   function showFrame(video: HTMLVideoElement) {
     if (!Number.isFinite(video.duration) || video.duration <= 0) return
-    const point = Math.min(0.4, video.duration * 0.12)
-    if (video.currentTime < 0.05) video.currentTime = point
+    const point = frameSeconds(video)
+    if (Math.abs(video.currentTime - point) > 0.05) video.currentTime = point
     setReady(true)
   }
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || playing || poster) return
+    if (!Number.isFinite(video.duration) || video.duration <= 0) return
+    const requested = (seekMs ?? 400) / 1000
+    const point = Math.min(Math.max(requested, 0), Math.max(video.duration - 0.05, 0))
+    if (Math.abs(video.currentTime - point) > 0.05) video.currentTime = point
+  }, [seekMs, playing, poster])
 
   function toggle() {
     const video = videoRef.current
@@ -555,8 +787,9 @@ function VideoFrame({ src, cover, onError }: { src: string; cover: boolean; onEr
         onError={onError}
         onEnded={() => setPlaying(false)}
       />
-      {ready ? null : <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs text-white">Loading preview…</span>}
-      {ready && !playing ? (
+      {poster && !playing ? <img src={poster} alt="" className={`absolute inset-0 h-full w-full bg-black ${cover ? 'object-cover' : 'object-contain'}`} /> : null}
+      {poster && !playing ? null : ready ? null : <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs text-white">Loading preview…</span>}
+      {(poster || ready) && !playing ? (
         <span className="absolute inset-0 flex items-center justify-center">
           <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/55 text-white"><Play className="h-5 w-5" /></span>
         </span>

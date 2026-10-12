@@ -24,6 +24,8 @@ export type ContentItem = {
   hashtags?: string
   firstComment?: string | null
   audio?: { id: string; title: string; artist: string | null; audioVolume: number; videoVolume: number } | null
+  coverMediaId?: string | null
+  thumbOffsetMs?: number | null
   format?: string | null
   type: ContentType
   platforms: Platform[]

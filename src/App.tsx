@@ -35,6 +35,7 @@ export default function App() {
                   <Route index element={<Navigate to="/dashboard" replace />} />
                   <Route path="/dashboard" element={<DashboardPage />} />
                   <Route path="/create" element={<CreateContentPage />} />
+                  <Route path="/content/:id/edit" element={<CreateContentPage />} />
                   <Route path="/stories/compose" element={<CreateContentPage story />} />
                   <Route
                     path="/content"

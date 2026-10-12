@@ -1,5 +1,5 @@
 import { format } from 'date-fns'
-import { CirclePlay, Clapperboard, Clock3, Image as ImageIcon, LayoutGrid, Play, RefreshCw } from 'lucide-react'
+import { CirclePlay, Clapperboard, Clock3, Image as ImageIcon, LayoutGrid, Pencil, Play, RefreshCw } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
@@ -241,6 +241,9 @@ function PreviewCard({
               : `${platformLabel(item.platforms[0] ?? 'instagram')} · ${typeLabel(item.type)} is ${item.status.replaceAll('_', ' ')}.`}
         </p>
         <div className="flex flex-wrap gap-2">
+          {item.status === 'draft' || item.status === 'scheduled' ? (
+            <Hint detail="Change the caption, hashtags, and time, then schedule or publish it."><Button size="sm" asChild><Link to={`/content/${item.id}/edit`}><Pencil className="h-4 w-4" /> Edit</Link></Button></Hint>
+          ) : null}
           {scheduled ? <Hint detail="Checks the account and file, then publishes this now and clears the later time."><Button size="sm" onClick={onUpload}>Upload now</Button></Hint> : null}
           <Hint detail="Open the caption, schedule, errors, and other actions for this item."><Button size="sm" variant="outline" onClick={onDetails}>Details</Button></Hint>
         </div>
