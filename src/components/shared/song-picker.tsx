@@ -45,6 +45,8 @@ export function SongPicker({
 }) {
   const [type, setType] = useState<'music' | 'original_sound'>('music')
   const [query, setQuery] = useState('')
+  const search = query.trim()
+  const requestQuery = search.length >= 2 ? search : ''
   const [tracks, setTracks] = useState<Track[]>([])
   const [needsPage, setNeedsPage] = useState(false)
   const [needsLink, setNeedsLink] = useState(false)
@@ -62,7 +64,7 @@ export function SongPicker({
     setLoading(true)
     setError(null)
     const timer = window.setTimeout(() => {
-      const params = new URLSearchParams({ accountId, type, q: query.trim() })
+      const params = new URLSearchParams({ accountId, type, q: requestQuery })
       api<{ tracks: Track[]; available: boolean; needsPage?: boolean; needsLink?: boolean; reason: string | null }>(`/api/audio?${params.toString()}`)
         .then((data) => {
           if (!active) return
@@ -86,7 +88,7 @@ export function SongPicker({
       active = false
       window.clearTimeout(timer)
     }
-  }, [accountId, enabled, query, type])
+  }, [accountId, enabled, requestQuery, type])
 
   useEffect(() => () => audioRef.current?.pause(), [])
 
@@ -170,11 +172,11 @@ export function SongPicker({
             <button type="button" className={`border-b-2 pb-2 text-sm font-medium ${type === 'original_sound' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500'}`} onClick={() => setType('original_sound')}>Original audio</button>
           </div>
           <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={type === 'music' ? 'Search songs or artists' : 'Search original audio'} aria-label="Search songs" />
+          <p className="text-xs font-medium text-slate-700">{requestQuery ? `Results for “${requestQuery}”` : 'Trending'}</p>
           {loading ? <p className="text-sm text-muted-foreground">Loading songs…</p> : null}
           {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
-          <p className="text-xs text-muted-foreground">Songs with a play icon have a clip. Every song in the list can still be selected for the Reel.</p>
           {playError ? <p className="text-sm text-amber-800" role="status">{playError}</p> : null}
-          <ul className="max-h-80 space-y-1 overflow-auto">
+          <ul className="max-h-[28rem] space-y-1 overflow-auto">
             {tracks.map((track) => {
               const selected = value?.id === track.id
               return (
@@ -192,7 +194,7 @@ export function SongPicker({
                       onClick={() => choose(track)}
                     >
                       <span className="block truncate text-sm font-semibold">{track.title}</span>
-                      <span className="block truncate text-xs text-muted-foreground">{[track.artist, lengthLabel(track.durationMs), track.previewUrl ? null : 'No clip'].filter(Boolean).join(' · ')}</span>
+                      <span className="block truncate text-xs text-muted-foreground">{[track.artist, lengthLabel(track.durationMs)].filter(Boolean).join(' · ')}</span>
                     </button>
                     {selected ? <Check className="h-4 w-4 shrink-0 text-slate-900" aria-label="Selected" /> : null}
                   </div>
@@ -200,7 +202,7 @@ export function SongPicker({
               )
             })}
           </ul>
-          {!loading && tracks.length === 0 && !error ? <p className="text-sm text-muted-foreground">No songs matched. Clear the search to load what Instagram is trending.</p> : null}
+          {!loading && tracks.length === 0 && !error ? <p className="text-sm text-muted-foreground">{requestQuery ? `No songs matched “${requestQuery}”.` : 'Instagram did not return trending songs for this account.'}</p> : null}
           {value ? (
             <div className="space-y-3 rounded-lg bg-slate-50 p-3">
               <div className="flex items-center justify-between gap-3">
