@@ -17,7 +17,7 @@ import type { MediaAsset, Platform } from '@/types/content'
 
 const uploadKinds = [
   { id: 'reel', label: 'Reel', hint: 'Vertical video. These show on the Reels page.', accept: 'video/mp4,video/quicktime', route: '/reels' },
-  { id: 'story', label: 'Story', hint: 'Full-screen photo or video. These show on the Stories page.', accept: 'image/jpeg,image/png,video/mp4,video/quicktime', route: '/stories' },
+  { id: 'story', label: 'Story', hint: 'Full-screen photo or video. These show on the Stories page.', accept: 'image/jpeg,image/png,image/webp,image/gif,image/bmp,video/mp4,video/quicktime', route: '/stories' },
   { id: 'image', label: 'Post', hint: 'Feed photo. These show on the Posts page.', accept: 'image/jpeg,image/png', route: '/posts' },
   { id: 'video', label: 'Feed video', hint: 'Feed video. These show on the Posts page.', accept: 'video/mp4,video/quicktime', route: '/posts' },
 ] as const

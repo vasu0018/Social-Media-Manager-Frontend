@@ -1,3 +1,22 @@
+export function partsInZone(iso: string, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(iso))
+  const pick = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
+  const hour = pick('hour') === '24' ? '00' : pick('hour')
+  return { date: `${pick('year')}-${pick('month')}-${pick('day')}`, time: `${hour.padStart(2, '0')}:${pick('minute').padStart(2, '0')}` }
+}
+
+export function todayInZone(timeZone: string) {
+  return partsInZone(new Date().toISOString(), timeZone)
+}
+
 export function zonedToUtc(date: string, time: string, timeZone: string) {
   const [year, month, day] = date.split('-').map(Number)
   const [hour, minute] = time.split(':').map(Number)

@@ -12,7 +12,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useContent } from '@/context/content-context'
 import { timezones } from '@/data/mock'
 import { formatDateTime, platformLabel, typeLabel } from '@/lib/format'
-import { formatInZone, zonedToUtc } from '@/lib/time'
+import { formatInZone, partsInZone, todayInZone, zonedToUtc } from '@/lib/time'
 import type { ContentItem } from '@/types/content'
 
 export function ContentPreviewDialog({
@@ -165,10 +165,12 @@ function ScheduleEditor({
   onCancel: () => void
   onUploadNow: () => void
 }) {
+  const zone = item.timezone || 'Asia/Kolkata'
+  const initial = item.scheduledAt ? partsInZone(item.scheduledAt, zone) : todayInZone(zone)
   const [caption, setCaption] = useState(item.caption)
-  const [date, setDate] = useState('')
-  const [time, setTime] = useState('')
-  const [timezone, setTimezone] = useState(item.timezone || 'Asia/Kolkata')
+  const [date, setDate] = useState(initial.date)
+  const [time, setTime] = useState(initial.time)
+  const [timezone, setTimezone] = useState(zone)
   const [error, setError] = useState<string | null>(null)
 
   return (
@@ -176,7 +178,7 @@ function ScheduleEditor({
       <p className="text-sm font-medium">Edit scheduled content</p>
       <Textarea aria-label="Caption" value={caption} onChange={(event) => setCaption(event.target.value)} />
       <div className="grid gap-2 sm:grid-cols-3">
-        <Input aria-label="Publication date" type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+        <Input aria-label="Publication date" type="date" min={todayInZone(timezone).date} value={date} onChange={(event) => setDate(event.target.value < todayInZone(timezone).date ? todayInZone(timezone).date : event.target.value)} />
         <Input aria-label="Publication time" type="time" value={time} onChange={(event) => setTime(event.target.value)} />
         <NativeSelect aria-label="Timezone" value={timezone} onChange={(event) => setTimezone(event.target.value)}>
           {timezones.map((zone) => <option key={zone.value} value={zone.value}>{zone.label}</option>)}

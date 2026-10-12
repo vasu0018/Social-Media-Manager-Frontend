@@ -17,7 +17,7 @@ import { usePageTitle } from '@/hooks/use-page-title'
 import { api } from '@/lib/api'
 import { composerFormats, probeFile, validateLocalMedia } from '@/lib/formats'
 import { framesForCaption } from '@/lib/suggest-frames'
-import { formatInZone, zonedToUtc } from '@/lib/time'
+import { formatInZone, partsInZone, todayInZone, zonedToUtc } from '@/lib/time'
 import { timezones } from '@/data/mock'
 import type { MediaAsset, Platform, SocialAccount } from '@/types/content'
 
@@ -65,21 +65,6 @@ function kindFromType(type: string): Kind {
   return 'video'
 }
 
-function partsInZone(iso: string, timeZone: string) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(new Date(iso))
-  const pick = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
-  const hour = pick('hour') === '24' ? '00' : pick('hour')
-  return { date: `${pick('year')}-${pick('month')}-${pick('day')}`, time: `${hour.padStart(2, '0')}:${pick('minute').padStart(2, '0')}` }
-}
-
 function initialKind(story: boolean, value: string | null): Kind {
   if (story || value === 'story') return 'story'
   if (value === 'image' || value === 'video' || value === 'reel') return value
@@ -108,8 +93,8 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
   const [coverBusy, setCoverBusy] = useState(false)
   const [batch, setBatch] = useState<MediaAsset[]>([])
   const [mediaId, setMediaId] = useState<string | null>(null)
-  const [date, setDate] = useState('')
-  const [time, setTime] = useState('')
+  const [date, setDate] = useState(() => todayInZone(settings.timezone || 'Asia/Kolkata').date)
+  const [time, setTime] = useState(() => todayInZone(settings.timezone || 'Asia/Kolkata').time)
   const [timezone, setTimezone] = useState(settings.timezone || 'Asia/Kolkata')
   const [errors, setErrors] = useState<string[]>([])
   const [fieldError, setFieldError] = useState<string | null>(null)
@@ -352,6 +337,11 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
       toast.error('Choose a publication date, time, and timezone.')
       return false
     }
+    if (action === 'schedule' && date && date < todayInZone(timezone).date) {
+      setFieldError('Choose today or a later date. Past dates cannot be scheduled.')
+      toast.error('Choose today or a later date. Past dates cannot be scheduled.')
+      return false
+    }
     if (scheduledAt && scheduledAt.getTime() < Date.now() + 60_000 && action === 'schedule') {
       setFieldError('Choose a time at least a minute from now.')
       toast.error('Choose a time at least a minute from now.')
@@ -370,9 +360,9 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
       if (editId) {
         await updateContent(editId, {
           title: title.trim(),
-          caption: caption.trim(),
-          hashtags: preparedHashtags().join(' '),
-          firstComment: firstCommentAllowed ? firstComment.trim() || null : null,
+          caption: kind === 'story' ? '' : caption.trim(),
+          hashtags: kind === 'story' ? '' : preparedHashtags().join(' '),
+          firstComment: kind === 'story' || !firstCommentAllowed ? null : firstComment.trim() || null,
           audio: songEnabled ? song : null,
           coverMediaId: kind === 'reel' || kind === 'video' ? cover?.id ?? null : null,
           thumbOffsetMs: (kind === 'reel' || kind === 'video') && !cover ? thumbOffsetMs : null,
@@ -398,9 +388,9 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
           : title.trim()
         await saveContent({
           title: fileTitle,
-          caption: caption.trim(),
-          hashtags: preparedHashtags().join(' '),
-          firstComment: firstCommentAllowed ? firstComment.trim() || null : null,
+          caption: kind === 'story' ? '' : caption.trim(),
+          hashtags: kind === 'story' ? '' : preparedHashtags().join(' '),
+          firstComment: kind === 'story' || !firstCommentAllowed ? null : firstComment.trim() || null,
           audio: songEnabled ? song : null,
           coverMediaId: kind === 'reel' || kind === 'video' ? cover?.id ?? null : null,
           thumbOffsetMs: (kind === 'reel' || kind === 'video') && !cover ? thumbOffsetMs : null,
@@ -489,8 +479,8 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
             >
               <Upload className="mb-2 h-6 w-6 text-primary" />
               <span className="text-sm font-semibold">Drop one or more finished {kind === 'story' ? 'stories' : `${kind}s`} here</span>
-              <span className="mt-1 text-xs text-muted-foreground">JPG, PNG, MP4, or MOV. Several files become separate posts with the same caption.</span>
-              <input id="media-file" type="file" multiple className="pointer-events-none absolute h-px w-px opacity-0" accept="image/jpeg,image/png,video/mp4,video/quicktime" onChange={(event) => {
+              <span className="mt-1 text-xs text-muted-foreground">{kind === 'story' ? 'JPEG, PNG, WebP, GIF, MP4, or MOV.' : 'JPG, PNG, MP4, or MOV.'} Several files become separate posts with the same caption.</span>
+              <input id="media-file" type="file" multiple className="pointer-events-none absolute h-px w-px opacity-0" accept={kind === 'story' ? 'image/jpeg,image/png,image/webp,image/gif,image/bmp,video/mp4,video/quicktime' : 'image/jpeg,image/png,video/mp4,video/quicktime'} onChange={(event) => {
                 const files = [...(event.target.files ?? [])]
                 event.target.value = ''
                 void onFiles(files)
@@ -560,22 +550,19 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
               {cover?.src ? <img src={cover.src} alt="" className="h-28 w-16 rounded-lg object-cover" /> : null}
             </section>
           ) : null}
+          {kind === 'story' ? null : (
           <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div>
-              <StepLabel n={story ? 2 : kind === 'reel' || kind === 'video' ? 4 : 3} title={kind === 'story' ? 'Caption and hashtags' : kind === 'reel' ? 'Caption and hashtags for this reel' : 'Caption and hashtags for this post'} />
+              <StepLabel n={kind === 'reel' || kind === 'video' ? 4 : 3} title={kind === 'reel' ? 'Caption and hashtags for this reel' : 'Caption and hashtags for this post'} />
               <p className="text-xs text-muted-foreground">
-                {kind === 'story'
-                  ? 'Stories publish the file itself. A caption is not sent with an Instagram or Facebook Story.'
-                  : 'This text is published with the file. Hashtags are placed after the caption.'}
+                This text is published with the file. Hashtags are placed after the caption.
               </p>
             </div>
-            {kind === 'story' ? null : (
-              <Button type="button" variant="outline" disabled={suggesting} onClick={() => void suggestCopy()}>
-                <Sparkles className="h-4 w-4" />
-                {suggesting ? 'Reading the file…' : 'AI caption & hashtags'}
-              </Button>
-            )}
-            <Field label="Caption" htmlFor="caption" error={captionError ?? undefined} hint={kind === 'story' ? 'Optional for Stories.' : 'Required before you schedule or publish.'}>
+            <Button type="button" variant="outline" disabled={suggesting} onClick={() => void suggestCopy()}>
+              <Sparkles className="h-4 w-4" />
+              {suggesting ? 'Reading the file…' : 'AI caption & hashtags'}
+            </Button>
+            <Field label="Caption" htmlFor="caption" error={captionError ?? undefined} hint="Required before you schedule or publish.">
               <Textarea id="caption" value={caption} rows={5} maxLength={2200} onChange={(event) => { setCaption(event.target.value); setCaptionError(null) }} placeholder={kind === 'reel' ? 'Write what should appear under the reel' : 'Write the caption'} />
             </Field>
             <Field
@@ -587,8 +574,9 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
               <Input id="hashtags" value={hashtags} onChange={(event) => { setHashtags(event.target.value); setHashtagError(null) }} placeholder="#studio #reel #behindthescenes" />
             </Field>
           </div>
+          )}
           <fieldset className="space-y-3">
-            <legend className="text-sm font-medium"><StepLabel n={story ? 3 : kind === 'reel' || kind === 'video' ? 5 : 4} title="Choose Instagram, Facebook, or both" /></legend>
+            <legend className="text-sm font-medium"><StepLabel n={kind === 'story' ? 2 : kind === 'reel' || kind === 'video' ? 5 : 4} title="Choose Instagram, Facebook, or both" /></legend>
             {(['instagram', 'facebook'] as const).map((platform) => {
               const format = composerFormats.find((entry) => entry.id === formatId(kind, platform))
               const choices = accounts.filter((account) => account.platform === platform)
@@ -626,21 +614,23 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
               )
             })}
           </fieldset>
-          <SongPicker accountId={accountIds.instagram} enabled={songEnabled} facebookToo={platforms.facebook} value={song} onChange={setSong} />
+          {kind === 'story' ? null : (
+            <SongPicker accountId={accountIds.instagram} enabled={songEnabled} facebookToo={platforms.facebook} value={song} onChange={setSong} />
+          )}
           <Field label="Title" htmlFor="title" hint="Internal only. This is not sent to Instagram or Facebook." error={fieldError && title.trim().length < 2 ? fieldError : undefined}>
             <Input id="title" value={title} maxLength={120} onChange={(event) => setTitle(event.target.value)} />
           </Field>
-          {firstCommentAllowed ? (
+          {kind === 'story' ? null : firstCommentAllowed ? (
             <Field label="First comment" htmlFor="comment" hint="Optional, and only sent to Instagram when comment permission was granted.">
               <Textarea id="comment" value={firstComment} rows={3} maxLength={2200} onChange={(event) => setFirstComment(event.target.value)} />
             </Field>
           ) : (
-            <p className="text-sm text-muted-foreground">A first comment is available for Instagram feed posts and Reels. Stories do not send one.</p>
+            <p className="text-sm text-muted-foreground">A first comment is available for Instagram feed posts and Reels.</p>
           )}
           <div className="space-y-3">
-            <StepLabel n={story ? 4 : 5} title="Pick a time if this should wait" />
+            <StepLabel n={kind === 'story' ? 3 : 5} title="Pick a time if this should wait" />
           <div className="grid gap-3 sm:grid-cols-3">
-            <Field label="Publication date" htmlFor="date"><Input id="date" type="date" value={date} onChange={(event) => setDate(event.target.value)} /></Field>
+            <Field label="Publication date" htmlFor="date"><Input id="date" type="date" min={todayInZone(timezone).date} value={date} onChange={(event) => setDate(event.target.value < todayInZone(timezone).date ? todayInZone(timezone).date : event.target.value)} /></Field>
             <Field label="Publication time" htmlFor="time"><Input id="time" type="time" value={time} onChange={(event) => setTime(event.target.value)} /></Field>
             <Field label="Timezone" htmlFor="zone">
               <NativeSelect id="zone" value={timezone} onChange={(event) => setTimezone(event.target.value)}>

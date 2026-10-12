@@ -43,7 +43,6 @@ export function SongPicker({
   value: SongChoice | null
   onChange: (song: SongChoice | null) => void
 }) {
-  const [type, setType] = useState<'music' | 'original_sound'>('music')
   const [query, setQuery] = useState('')
   const search = query.trim()
   const requestQuery = search.length >= 2 ? search : ''
@@ -64,7 +63,7 @@ export function SongPicker({
     setLoading(true)
     setError(null)
     const timer = window.setTimeout(() => {
-      const params = new URLSearchParams({ accountId, type, q: requestQuery })
+      const params = new URLSearchParams({ accountId, type: 'music', q: requestQuery })
       api<{ tracks: Track[]; available: boolean; needsPage?: boolean; needsLink?: boolean; reason: string | null }>(`/api/audio?${params.toString()}`)
         .then((data) => {
           if (!active) return
@@ -88,7 +87,7 @@ export function SongPicker({
       active = false
       window.clearTimeout(timer)
     }
-  }, [accountId, enabled, requestQuery, type])
+  }, [accountId, enabled, requestQuery])
 
   useEffect(() => () => audioRef.current?.pause(), [])
 
@@ -99,21 +98,20 @@ export function SongPicker({
   function play(track: Track) {
     setPlayError(null)
     if (!track.previewUrl) {
+      setPlayError('Instagram did not give a preview for this song. You can still select it.')
       choose(track)
       return
     }
-    if (playingId === track.id) {
-      audioRef.current?.pause()
+    const player = audioRef.current
+    if (!player) return
+    if (playingId === track.id && !player.paused) {
+      player.pause()
       setPlayingId(null)
       setLoadingId(null)
       return
     }
-    audioRef.current?.pause()
-    const player = new Audio(mediaAddress(track.previewUrl))
-    player.preload = 'auto'
-    audioRef.current = player
     setLoadingId(track.id)
-    setPlayingId(null)
+    player.src = mediaAddress(track.previewUrl)
     player.onended = () => {
       setPlayingId(null)
       setLoadingId(null)
@@ -124,11 +122,9 @@ export function SongPicker({
       setPlayError('This preview could not be played. You can still select the song.')
     }
     void player.play().then(() => {
-      if (audioRef.current !== player) return
       setLoadingId(null)
       setPlayingId(track.id)
     }).catch(() => {
-      if (audioRef.current !== player) return
       setPlayingId(null)
       setLoadingId(null)
       setPlayError('This preview could not be played. You can still select the song.')
@@ -150,7 +146,7 @@ export function SongPicker({
         <div>
           <h2 className="text-sm font-semibold text-slate-900">Add audio</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Trending songs and original sounds come from Instagram. The song is attached when the Reel is published.
+            Trending Instagram songs. Play a preview, then select the one to attach when the Reel is published.
           </p>
         </div>
       </div>
@@ -167,12 +163,12 @@ export function SongPicker({
       ) : null}
       {accountId && !needsPage ? (
         <>
-          <div className="flex gap-4 border-b border-slate-200">
-            <button type="button" className={`border-b-2 pb-2 text-sm font-medium ${type === 'music' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500'}`} onClick={() => setType('music')}>Trending</button>
-            <button type="button" className={`border-b-2 pb-2 text-sm font-medium ${type === 'original_sound' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500'}`} onClick={() => setType('original_sound')}>Original audio</button>
+          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search trending songs or artists" aria-label="Search trending songs" />
+          <div className="rounded-lg border bg-slate-50 p-3">
+            <audio ref={audioRef} controls className="w-full" preload="none" />
+            <p className="mt-1 text-xs text-muted-foreground">{playingId ? 'Playing preview' : 'Choose a song below, then press play.'}</p>
           </div>
-          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={type === 'music' ? 'Search songs or artists' : 'Search original audio'} aria-label="Search songs" />
-          <p className="text-xs font-medium text-slate-700">{requestQuery ? `Results for “${requestQuery}”` : 'Trending'}</p>
+          <p className="text-xs font-medium text-slate-700">{requestQuery ? `Trending results for “${requestQuery}”` : 'Trending songs'}</p>
           {loading ? <p className="text-sm text-muted-foreground">Loading songs…</p> : null}
           {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
           {playError ? <p className="text-sm text-amber-800" role="status">{playError}</p> : null}
@@ -182,7 +178,7 @@ export function SongPicker({
               return (
                 <li key={track.id}>
                   <div className={`flex items-center gap-3 rounded-lg px-2 py-2 ${selected ? 'bg-slate-100' : 'hover:bg-slate-50'}`}>
-                    <button type="button" className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md bg-slate-200" onClick={() => play(track)} aria-label={track.previewUrl ? (playingId === track.id ? 'Pause preview' : 'Play preview') : 'Select song'}>
+                    <button type="button" className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md bg-slate-200" onClick={() => play(track)} aria-label={playingId === track.id ? 'Pause preview' : 'Play preview'}>
                       {track.artworkUrl ? <img src={mediaAddress(track.artworkUrl)} alt="" className="h-full w-full object-cover" /> : null}
                       <span className="absolute inset-0 flex items-center justify-center bg-black/25 text-white">
                         {!track.previewUrl ? <Music2 className="h-4 w-4" /> : loadingId === track.id ? <Loader2 className="h-4 w-4 animate-spin" /> : playingId === track.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
