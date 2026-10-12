@@ -4,7 +4,7 @@ import { useAuth } from '@/context/auth-context'
 import { api, apiPath, ApiError, uploadFile } from '@/lib/api'
 import { formatBytes } from '@/lib/format'
 import { seedSettings } from '@/data/mock'
-import type { ContentItem, MediaAsset, SocialAccount, WorkspaceSettings } from '@/types/content'
+import type { ContentItem, ContentType, MediaAsset, SocialAccount, WorkspaceSettings } from '@/types/content'
 
 type SaveContentInput = {
   title: string
@@ -46,6 +46,8 @@ type ContentContextValue = {
   publishItem: (id: string) => Promise<ContentItem>
   reschedule: (id: string, scheduledAt: string, timezone: string) => Promise<void>
   deleteItem: (id: string) => void
+  deleteAllItems: (types?: ContentType[]) => Promise<{ deleted: number }>
+  deleteAllMedia: () => Promise<{ deleted: number; skipped: number }>
   duplicateItem: (id: string) => void
   repostItem: (id: string) => void
   cancelSchedule: (id: string) => void
@@ -213,6 +215,19 @@ export function ContentProvider({ children }: { children: ReactNode }) {
       void api(`/api/content/${id}`, { method: 'DELETE' })
         .then(() => setItems((current) => current.filter((item) => item.id !== id)))
         .catch((error) => toast.error(message(error)))
+    },
+    deleteAllItems: async (types) => {
+      const data = await api<{ deleted: number }>('/api/content/bulk-delete', {
+        method: 'POST',
+        body: JSON.stringify(types?.length ? { types } : {}),
+      })
+      await refresh()
+      return data
+    },
+    deleteAllMedia: async () => {
+      const data = await api<{ deleted: number; skipped: number }>('/api/media/bulk-delete', { method: 'POST' })
+      await refresh()
+      return data
     },
     duplicateItem: (id) => {
       void api<{ item: ContentItem }>(`/api/content/${id}/duplicate`, { method: 'POST' })

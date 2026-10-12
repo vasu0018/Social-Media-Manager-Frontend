@@ -86,7 +86,7 @@ export default function App() {
               </Route>
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
-            <Toaster position="top-right" closeButton richColors />
+            <Toaster position="top-right" closeButton richColors offset={72} visibleToasts={3} />
           </ContentProvider>
         </AuthProvider>
       </TooltipProvider>

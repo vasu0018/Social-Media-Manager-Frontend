@@ -13,10 +13,11 @@ function AlertDialogContent({
 }: ComponentProps<typeof AlertDialogPrimitive.Content>) {
   return (
     <AlertDialogPrimitive.Portal>
-      <AlertDialogPrimitive.Overlay className="fixed inset-0 z-50 bg-slate-950/50" />
+      <AlertDialogPrimitive.Overlay className="fixed inset-0 z-[100] bg-slate-950/50" />
       <AlertDialogPrimitive.Content
+        onCloseAutoFocus={(event) => event.preventDefault()}
         className={cn(
-          'fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-card p-6 text-card-foreground shadow-xl focus:outline-none',
+          'fixed left-1/2 top-1/2 z-[110] max-h-[min(85vh,calc(100dvh-2rem))] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto overscroll-contain rounded-xl border bg-card p-6 text-card-foreground shadow-xl focus:outline-none',
           className,
         )}
         {...props}

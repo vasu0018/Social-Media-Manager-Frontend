@@ -116,7 +116,7 @@ export function StudioBoard({
             </ul>
           )}
         </Card>
-        <div className="space-y-4 xl:sticky xl:top-4">
+        <div className="space-y-4 xl:sticky xl:top-4 xl:max-h-[calc(100dvh-9rem)] xl:overflow-y-auto xl:overscroll-contain">
           {selected ? (
             <PreviewCard
               item={selected}

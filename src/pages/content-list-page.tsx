@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { toast } from 'sonner'
+import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { PageHeader } from '@/components/shared/page-header'
 import { StudioBoard } from '@/components/shared/studio-board'
 import { Input } from '@/components/ui/input'
@@ -29,7 +31,8 @@ export function ContentListPage({
   types?: ContentType[]
 }) {
   usePageTitle(title)
-  const { items, accounts } = useContent()
+  const { items, accounts, deleteAllItems } = useContent()
+  const [clearing, setClearing] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [params, setParams] = useSearchParams()
   const query = params.get('q') ?? ''
@@ -62,13 +65,27 @@ export function ContentListPage({
   })
   const filtersActive = Boolean(query || status !== 'all' || platform !== 'all' || accountId !== 'all' || from || to || (!types && typeFilter !== 'all'))
   const upload = uploadFor(types)
+  const noun = types?.includes('reel') && types.length === 1
+    ? 'reels'
+    : types?.includes('story')
+      ? 'stories'
+      : types
+        ? 'posts'
+        : 'items'
 
   return (
     <div className="space-y-4">
     <PageHeader
       title={title}
       description={description}
-      action={<Button asChild><Link to={upload.href}>{upload.label}</Link></Button>}
+      action={
+        <div className="flex flex-wrap gap-2">
+          {base.length > 0 ? (
+            <Button variant="outline" onClick={() => setClearing(true)}>Delete all</Button>
+          ) : null}
+          <Button asChild><Link to={upload.href}>{upload.label}</Link></Button>
+        </div>
+      }
     />
     <StudioBoard
       key={title}
@@ -115,6 +132,22 @@ export function ContentListPage({
           {filtersActive ? <Button variant="ghost" onClick={() => setParams(new URLSearchParams())}>Clear</Button> : null}
         </div>
       }
+    />
+    <ConfirmDialog
+      open={clearing}
+      onOpenChange={setClearing}
+      title={`Delete all ${noun}?`}
+      description={`This removes every ${noun} record from this workspace. Live Instagram and Facebook posts stay online. Items that are publishing now are skipped.`}
+      confirmLabel="Delete all"
+      destructive
+      onConfirm={() => {
+        void deleteAllItems(types)
+          .then((result) => {
+            toast.success(result.deleted === 0 ? `No ${noun} could be deleted.` : `${result.deleted} ${noun} deleted.`)
+            setClearing(false)
+          })
+          .catch((error) => toast.error(error instanceof Error ? error.message : 'Could not delete these items.'))
+      }}
     />
     </div>
   )

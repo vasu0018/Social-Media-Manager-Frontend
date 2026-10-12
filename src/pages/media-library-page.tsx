@@ -39,9 +39,10 @@ function titleFrom(name: string) {
 export function MediaLibraryPage() {
   usePageTitle('Media Library')
   const navigate = useNavigate()
-  const { media, accounts, uploadMedia, deleteMedia, saveContent } = useContent()
+  const { media, accounts, uploadMedia, deleteMedia, deleteAllMedia, saveContent } = useContent()
   const [filter, setFilter] = useState('all')
   const [pending, setPending] = useState<MediaAsset | null>(null)
+  const [clearing, setClearing] = useState(false)
   const [progress, setProgress] = useState<number | null>(null)
   const [ask, setAsk] = useState(false)
   const [kind, setKind] = useState<UploadKind>('reel')
@@ -145,14 +146,19 @@ export function MediaLibraryPage() {
       <PageHeader
         title="Media Library"
         description="Upload several files at once. Choose reel, story, post, or feed video first, then they show on that page as drafts."
-        action={<Button onClick={openAsk}><Upload className="h-4 w-4" /> Bulk upload</Button>}
+        action={
+          <div className="flex flex-wrap gap-2">
+            {media.length > 0 ? <Button variant="outline" onClick={() => setClearing(true)}><Trash2 className="h-4 w-4" /> Delete all</Button> : null}
+            <Button onClick={openAsk}><Upload className="h-4 w-4" /> Bulk upload</Button>
+          </div>
+        }
       />
       <input
         ref={inputRef}
         type="file"
         multiple
         accept={choice.accept}
-        className="sr-only"
+        className="pointer-events-none fixed left-0 top-0 h-px w-px opacity-0"
         aria-label="Upload media"
         onChange={(event) => {
           void onFiles(event.target.files)
@@ -240,6 +246,23 @@ export function MediaLibraryPage() {
           </div>
         </DialogContent>
       </Dialog>
+      <ConfirmDialog
+        open={clearing}
+        onOpenChange={setClearing}
+        title="Delete all files?"
+        description="This removes every file from the library. Files attached to scheduled or publishing items are skipped. Content that used a deleted file keeps its caption."
+        confirmLabel="Delete all"
+        destructive
+        onConfirm={() => {
+          void deleteAllMedia()
+            .then((result) => {
+              const extra = result.skipped > 0 ? ` ${result.skipped} stayed because they are on a schedule.` : ''
+              toast.success(result.deleted === 0 ? `No files could be deleted.${extra}` : `${result.deleted} files deleted.${extra}`)
+              setClearing(false)
+            })
+            .catch((error) => toast.error(error instanceof Error ? error.message : 'Could not delete the library.'))
+        }}
+      />
       <ConfirmDialog
         open={pending !== null}
         onOpenChange={(open) => { if (!open) setPending(null) }}

@@ -68,7 +68,7 @@ export function AppShell() {
       >
         Skip to content
       </a>
-      <div className="z-40 flex h-9 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-900 px-4 text-xs text-slate-300">
+      <div className="relative z-30 flex h-9 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-900 px-4 text-xs text-slate-300">
         <span className="inline-flex items-center font-medium text-slate-200">
           <span className="mr-2 inline-block h-2 w-2 rounded-full bg-emerald-500" />
           Official Meta Graph API
@@ -88,7 +88,7 @@ export function AppShell() {
         </div>
       </Sheet>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="z-20 flex h-16 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 sm:px-6">
+        <header className="relative z-20 flex h-16 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 sm:px-6">
           <Button
             variant="outline"
             size="icon"
@@ -152,7 +152,7 @@ export function AppShell() {
             </DropdownMenu>
           </div>
         </header>
-        <main id="main" className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
+        <main id="main" className="relative z-0 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 sm:px-6 lg:px-8">
           <div className="mx-auto w-full max-w-[1400px]">
             {ready ? <Outlet /> : <PageSkeleton />}
           </div>

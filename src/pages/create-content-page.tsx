@@ -447,7 +447,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
         title={editing ? 'Edit this draft' : story ? 'Upload a story' : 'Upload a reel or story'}
         description={editing ? 'Change the caption, hashtags, cover, or time, then save, schedule, or publish. Instagram and Facebook stay on the destinations you already chose.' : 'The file is already made. Drop it here, choose Instagram, Facebook, or both, then publish now or pick a time.'}
       />
-      <form className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]" onSubmit={(event) => event.preventDefault()}>
+      <form className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]" onSubmit={(event) => event.preventDefault()}>
         <div className="space-y-4">
           {story ? null : (
             <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -490,7 +490,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
               <Upload className="mb-2 h-6 w-6 text-primary" />
               <span className="text-sm font-semibold">Drop one or more finished {kind === 'story' ? 'stories' : `${kind}s`} here</span>
               <span className="mt-1 text-xs text-muted-foreground">JPG, PNG, MP4, or MOV. Several files become separate posts with the same caption.</span>
-              <input id="media-file" type="file" multiple className="sr-only" accept="image/jpeg,image/png,video/mp4,video/quicktime" onChange={(event) => {
+              <input id="media-file" type="file" multiple className="pointer-events-none absolute h-px w-px opacity-0" accept="image/jpeg,image/png,video/mp4,video/quicktime" onChange={(event) => {
                 const files = [...(event.target.files ?? [])]
                 event.target.value = ''
                 void onFiles(files)
@@ -651,14 +651,14 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
           </div>
           {nextRun ? <p className="text-sm" role="status">Next scheduled execution: {nextRun}. Stored in UTC as {scheduledAt?.toISOString()}.</p> : null}
           {fieldError && title.trim().length >= 2 ? <p className="text-sm text-destructive" role="alert">{fieldError}</p> : null}
-          <div className="sticky bottom-4 z-10 flex flex-wrap gap-2 rounded-2xl border bg-white/95 p-3 shadow-[0_12px_40px_rgba(36,27,69,0.12)] backdrop-blur">
+          <div className="sticky bottom-0 z-10 flex flex-wrap gap-2 rounded-2xl border bg-white/95 p-3 shadow-[0_12px_40px_rgba(36,27,69,0.12)] backdrop-blur">
             <HintButton type="button" disabled={saving} detail="Checks the file, account, caption, and hashtags, then sends it now. It is marked published only after Meta confirms it." onClick={() => { if (validate('publish')) setConfirm('publish') }}><Send className="h-4 w-4" /> Publish Now</HintButton>
             <HintButton type="button" variant="outline" disabled={saving} detail="Saves the caption, hashtags, and time. The server posts it then, even if you close this site." onClick={() => { if (validate('schedule')) setConfirm('schedule') }}><CalendarClock className="h-4 w-4" /> Schedule</HintButton>
             <HintButton type="button" variant="outline" disabled={saving} detail="Keeps this in the workspace. Nothing is sent to Instagram or Facebook." onClick={() => void submit('draft')}><FilePen className="h-4 w-4" /> Save Draft</HintButton>
             <HintButton type="button" variant="ghost" detail="Closes this screen. Anything you have not saved is discarded." onClick={() => navigate(story ? '/stories' : '/content')}><X className="h-4 w-4" /> Cancel</HintButton>
           </div>
         </div>
-        <div className="space-y-4">
+        <div className="space-y-4 xl:sticky xl:top-0 xl:max-h-[calc(100dvh-9rem)] xl:overflow-y-auto xl:overscroll-contain">
           {(selected.length > 0 ? selected : (['instagram'] as const)).map((platform) => (
             <Card key={platform}>
               <CardHeader><CardTitle>{platform === 'instagram' ? 'Instagram preview' : 'Facebook preview'}</CardTitle></CardHeader>

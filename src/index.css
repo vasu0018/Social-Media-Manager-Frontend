@@ -64,17 +64,25 @@
     @apply border-border;
   }
 
+  html, body, #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
   html {
     font-family: var(--font-sans);
   }
 
   body {
     @apply bg-background text-foreground antialiased;
-    min-height: 100vh;
+    margin: 0;
   }
 
-  #root {
-    min-height: 100vh;
+  body[data-scroll-locked] {
+    --removed-body-scroll-bar-size: 0px;
+    margin: 0 !important;
+    padding-right: 0 !important;
+    overflow: hidden !important;
   }
 }
 

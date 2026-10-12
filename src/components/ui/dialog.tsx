@@ -14,10 +14,11 @@ function DialogContent({
 }: ComponentProps<typeof DialogPrimitive.Content>) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-slate-950/50" />
+      <DialogPrimitive.Overlay className="fixed inset-0 z-[80] bg-slate-950/50" />
       <DialogPrimitive.Content
+        onCloseAutoFocus={(event) => event.preventDefault()}
         className={cn(
-          'fixed left-1/2 top-1/2 z-50 max-h-[85vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-card p-6 text-card-foreground shadow-xl focus:outline-none',
+          'fixed left-1/2 top-1/2 z-[90] max-h-[min(85vh,calc(100dvh-2rem))] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto overscroll-contain rounded-xl border bg-card p-6 text-card-foreground shadow-xl focus:outline-none',
           className,
         )}
         {...props}
