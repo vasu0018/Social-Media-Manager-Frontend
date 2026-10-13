@@ -47,7 +47,7 @@ type ContentContextValue = {
   scheduleItem: (id: string, scheduledAt: string, timezone: string) => Promise<ContentItem>
   publishItem: (id: string) => Promise<ContentItem>
   reschedule: (id: string, scheduledAt: string, timezone: string) => Promise<void>
-  deleteItem: (id: string) => void
+  deleteItem: (id: string) => Promise<{ livePostKept: boolean }>
   deleteAllItems: (types?: ContentType[]) => Promise<{ deleted: number }>
   deleteAllMedia: () => Promise<{ deleted: number; skipped: number }>
   duplicateItem: (id: string) => void
@@ -214,10 +214,15 @@ export function ContentProvider({ children }: { children: ReactNode }) {
       })
       setItems((current) => current.map((item) => item.id === id ? data.item : item))
     },
-    deleteItem: (id) => {
-      void api(`/api/content/${id}`, { method: 'DELETE' })
-        .then(() => setItems((current) => current.filter((item) => item.id !== id)))
-        .catch((error) => toast.error(message(error)))
+    deleteItem: async (id) => {
+      try {
+        const data = await api<{ livePostKept: boolean }>(`/api/content/${id}`, { method: 'DELETE' })
+        setItems((current) => current.filter((item) => item.id !== id))
+        return data
+      } catch (error) {
+        toast.error(message(error))
+        throw error
+      }
     },
     deleteAllItems: async (types) => {
       const data = await api<{ deleted: number }>('/api/content/bulk-delete', {

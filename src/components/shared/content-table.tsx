@@ -123,9 +123,11 @@ export function ContentTable({
         destructive
         onConfirm={() => {
           if (!pendingDelete) return
-          deleteItem(pendingDelete.id)
-          toast.success(pendingDelete.publications?.some((destination) => destination.externalId) ? 'Workspace record removed. The live post was left online.' : `Deleted “${pendingDelete.title}”`)
+          const target = pendingDelete
           setPendingDelete(null)
+          void deleteItem(target.id)
+            .then(({ livePostKept }) => toast.success(livePostKept ? 'Workspace record removed. The live post was left online.' : `Deleted “${target.title}”`))
+            .catch(() => undefined)
         }}
       />
       <ConfirmDialog

@@ -1,7 +1,8 @@
 import { format } from 'date-fns'
-import { CirclePlay, Clapperboard, Clock3, Image as ImageIcon, LayoutGrid, Pencil, Play, RefreshCw } from 'lucide-react'
+import { CirclePlay, Clapperboard, Clock3, Image as ImageIcon, LayoutGrid, Pencil, Play, RefreshCw, Trash2 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { ContentPreviewDialog } from '@/components/shared/content-preview'
 import { EmptyState } from '@/components/shared/empty-state'
@@ -41,11 +42,12 @@ export function StudioBoard({
   emptyDescription: string
   emptyAction?: ReactNode
 }) {
-  const { accounts, media, publishNow, cancelSchedule, refresh } = useContent()
+  const { accounts, media, publishNow, cancelSchedule, deleteItem, refresh } = useContent()
   const [selectedId, setSelectedId] = useState<string | null>(items[0]?.id ?? null)
   const [details, setDetails] = useState<ContentItem | null>(null)
   const [uploadNow, setUploadNow] = useState<ContentItem | null>(null)
   const [stopAuto, setStopAuto] = useState<ContentItem | null>(null)
+  const [removing, setRemoving] = useState<ContentItem | null>(null)
   const selected = items.find((item) => item.id === selectedId) ?? items[0] ?? null
   const connected = accounts.filter((account) => account.connected)
 
@@ -82,11 +84,11 @@ export function StudioBoard({
                 const asset = media.find((entry) => entry.id === item.mediaId) ?? null
                 const active = selected?.id === item.id
                 return (
-                  <li key={item.id}>
+                  <li key={item.id} className={`flex items-center pr-2 ${active ? 'bg-indigo-50/70' : 'hover:bg-slate-50'}`}>
                     <button
                       type="button"
                       onClick={() => setSelectedId(item.id)}
-                      className={`grid w-full gap-3 px-4 py-3 text-left sm:grid-cols-[minmax(0,1.5fr)_auto_7.5rem_auto] sm:items-center ${active ? 'bg-indigo-50/70' : 'hover:bg-slate-50'}`}
+                      className="grid min-w-0 flex-1 gap-3 px-4 py-3 text-left sm:grid-cols-[minmax(0,1.5fr)_auto_7.5rem_auto] sm:items-center"
                     >
                       <span className="flex min-w-0 items-center gap-3">
                         <span className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100">
@@ -110,6 +112,19 @@ export function StudioBoard({
                         <Icon className="h-4 w-4" />
                       </span>
                     </button>
+                    {item.status === 'processing' ? null : (
+                      <Hint detail="Delete only this item from Reel Studio.">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="shrink-0 text-muted-foreground hover:text-destructive"
+                          aria-label={`Delete ${item.title}`}
+                          onClick={() => setRemoving(item)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </Hint>
+                    )}
                   </li>
                 )
               })}
@@ -123,6 +138,7 @@ export function StudioBoard({
               onDetails={() => setDetails(selected)}
               onUpload={() => setUploadNow(selected)}
               onStopAuto={() => setStopAuto(selected)}
+              onDelete={() => setRemoving(selected)}
             />
           ) : (
             <Card className="p-5 text-sm text-muted-foreground">Select a reel or story to preview it.</Card>
@@ -164,8 +180,33 @@ export function StudioBoard({
           setStopAuto(null)
         }}
       />
+      <ConfirmDialog
+        open={removing !== null}
+        onOpenChange={(open) => { if (!open) setRemoving(null) }}
+        title={`Delete this ${removing ? typeLabel(removing.type).toLowerCase() : 'item'}?`}
+        description={removalText(removing)}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (!removing) return
+          const target = removing
+          setRemoving(null)
+          void deleteItem(target.id)
+            .then(({ livePostKept }) => toast.success(livePostKept ? `Deleted "${target.title}" from Reel Studio. The live post is still on Instagram or Facebook.` : `Deleted "${target.title}".`))
+            .catch(() => undefined)
+        }}
+      />
     </div>
   )
+}
+
+function removalText(item: ContentItem | null) {
+  if (!item) return ''
+  if (item.publications?.some((destination) => destination.externalId)) {
+    return `"${item.title}" is removed from Reel Studio only. The post already on Instagram or Facebook stays online; delete it in the Instagram or Facebook app if you want it gone there too.`
+  }
+  if (item.status === 'scheduled') return `"${item.title}" is removed and will not publish at its scheduled time. The file stays in the Media Library.`
+  return `"${item.title}" is removed. Nothing is sent to Instagram or Facebook. The file stays in the Media Library.`
 }
 
 function PreviewCard({
@@ -173,11 +214,13 @@ function PreviewCard({
   onDetails,
   onUpload,
   onStopAuto,
+  onDelete,
 }: {
   item: ContentItem
   onDetails: () => void
   onUpload: () => void
   onStopAuto: () => void
+  onDelete: () => void
 }) {
   const { media, accounts } = useContent()
   const asset = media.find((entry) => entry.id === item.mediaId) ?? null
@@ -246,6 +289,9 @@ function PreviewCard({
           ) : null}
           {scheduled ? <Hint detail="Checks the account and file, then publishes this now and clears the later time."><Button size="sm" onClick={onUpload}>Upload now</Button></Hint> : null}
           <Hint detail="Open the caption, schedule, errors, and other actions for this item."><Button size="sm" variant="outline" onClick={onDetails}>Details</Button></Hint>
+          {item.status === 'processing' ? null : (
+            <Hint detail="Delete only this item from Reel Studio."><Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={onDelete}><Trash2 className="h-4 w-4" /> Delete</Button></Hint>
+          )}
         </div>
       </div>
     </Card>

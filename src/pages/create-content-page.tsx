@@ -21,7 +21,7 @@ import { composerFormats, probeFile, validateLocalMedia } from '@/lib/formats'
 import { framesForCaption } from '@/lib/suggest-frames'
 import { formatInZone, partsInZone, todayInZone, zonedToUtc } from '@/lib/time'
 import { timezones } from '@/data/mock'
-import type { InstagramUserTag, MediaAsset, Platform, PublishOptions, SocialAccount } from '@/types/content'
+import type { InstagramUserTag, MediaAsset, PlaceChoice, Platform, PublishOptions, SocialAccount } from '@/types/content'
 
 const kinds = [
   { id: 'reel', label: 'Reel', hint: '9:16 vertical video', icon: Clapperboard, iconClass: 'text-rose-500' },
@@ -38,6 +38,8 @@ function formatId(kind: Kind, platform: Platform) {
   if (kind === 'image') return platform === 'instagram' ? 'instagram_feed_image' : 'facebook_image'
   return platform === 'instagram' ? 'instagram_feed_video' : 'facebook_video'
 }
+
+const maxAccounts = 20
 
 function supportMessage(kind: Kind, platform: Platform, account: SocialAccount | undefined) {
   if (kind !== 'story') return null
@@ -173,6 +175,22 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
     setHydrated(true)
   }, [editId, existing, hydrated, media])
 
+  useEffect(() => {
+    if (editId) return
+    let cancelled = false
+    api<{ place: PlaceChoice | null }>('/api/places/default')
+      .then(({ place }) => {
+        if (cancelled || !place) return
+        setOptions((current) => ({
+          ...current,
+          instagram: { ...current.instagram, location: current.instagram?.location ?? place },
+          facebook: { ...current.facebook, place: current.facebook?.place ?? place },
+        }))
+      })
+      .catch(() => undefined)
+    return () => { cancelled = true }
+  }, [editId])
+
   const selected = (['instagram', 'facebook'] as const).filter((platform) => platforms[platform])
   const songEnabled = (kind === 'reel' || kind === 'video') && platforms.instagram
   const formats = selected.map((platform) => composerFormats.find((entry) => entry.id === formatId(kind, platform))!)
@@ -224,6 +242,23 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
       toast.error(error instanceof Error ? error.message : 'Could not write a caption.')
     } finally {
       setSuggesting(false)
+    }
+  }
+
+  function chooseKind(next: Kind) {
+    setKind(next)
+    setErrors([])
+    const dropped: string[] = []
+    const keep = (platform: Platform) => accountIds[platform].filter((id) => {
+      const account = accounts.find((entry) => entry.id === id)
+      const note = supportMessage(next, platform, account)
+      if (note && !note.ok) dropped.push(account?.name ?? 'A removed account')
+      return !note || note.ok
+    })
+    const kept = { instagram: keep('instagram'), facebook: keep('facebook') }
+    if (dropped.length > 0) {
+      setAccountIds(kept)
+      toast.info(`Unticked ${dropped.join(', ')}, because they cannot publish Stories.`)
     }
   }
 
@@ -359,9 +394,9 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
       toast.error('Select at least one platform.')
       return false
     }
-    if (destinationCount > 6) {
-      setFieldError('Choose up to 6 accounts in total for one post.')
-      toast.error('Choose up to 6 accounts in total for one post.')
+    if (destinationCount > maxAccounts) {
+      setFieldError(`Choose up to ${maxAccounts} accounts in total for one post.`)
+      toast.error(`Choose up to ${maxAccounts} accounts in total for one post.`)
       return false
     }
     if (action !== 'draft') {
@@ -382,6 +417,13 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
             return false
           }
         }
+      }
+      const songless = songEnabled && song ? accounts.find((entry) => accountIds.instagram.includes(entry.id) && !entry.canBrowseSongs) : undefined
+      if (songless) {
+        const message = `${songless.name} is connected without its Facebook Page, so Instagram will not attach the song there. Reconnect it through its Facebook Page, or untick it.`
+        setFieldError(message)
+        toast.error(message)
+        return false
       }
       if (batch.length === 0 && !mediaId) {
         const message = errors[0] ?? 'Upload a file that meets every selected platform.'
@@ -503,7 +545,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
                   <button
                     type="button"
                     disabled={editing}
-                    onClick={() => { if (!editing) { setKind(entry.id); setErrors([]) } }}
+                    onClick={() => { if (!editing) chooseKind(entry.id) }}
                     className={`w-full rounded-xl border-2 bg-white p-3.5 text-left ${active ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-200 hover:border-slate-300'}`}
                   >
                     <Icon className={`mb-2 h-5 w-5 ${entry.iconClass}`} />
@@ -694,10 +736,10 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
                 </div>
               )
             })}
-            {destinationCount > 6 ? <p className="text-sm text-destructive">One post can go to up to 6 accounts in total.</p> : null}
+            {destinationCount > maxAccounts ? <p className="text-sm text-destructive">One post can go to up to {maxAccounts} accounts in total.</p> : null}
           </fieldset>
           {kind === 'story' ? null : (
-            <SongPicker accountId={accountIds.instagram[0] ?? ''} enabled={songEnabled} facebookToo={platforms.facebook} value={song} onChange={setSong} />
+            <SongPicker accountId={accountIds.instagram.find((id) => accounts.find((entry) => entry.id === id)?.canBrowseSongs) ?? accountIds.instagram[0] ?? ''} enabled={songEnabled} facebookToo={platforms.facebook} value={song} onChange={setSong} />
           )}
           <PublishOptionsPanel
             kind={kind}
