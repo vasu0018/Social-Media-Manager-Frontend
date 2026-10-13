@@ -26,6 +26,7 @@ export type ContentItem = {
   audio?: { id: string; title: string; artist: string | null; audioVolume: number; videoVolume: number } | null
   coverMediaId?: string | null
   thumbOffsetMs?: number | null
+  publishOptions?: PublishOptions
   format?: string | null
   type: ContentType
   platforms: Platform[]
@@ -42,6 +43,34 @@ export type ContentItem = {
   timezone?: string
   publications?: PublicationRecord[]
   attempts?: PublishAttemptRecord[]
+}
+
+export type PlaceChoice = { id: string; name: string; address?: string | null }
+
+export type InstagramUserTag = { username: string; x?: number; y?: number }
+
+export type InstagramOptions = {
+  location?: PlaceChoice | null
+  userTags?: InstagramUserTag[]
+  collaborators?: string[]
+  altText?: string
+  shareToFeed?: boolean
+  trialReel?: 'off' | 'MANUAL' | 'SS_PERFORMANCE'
+  audioName?: string
+  commentsOff?: boolean
+}
+
+export type FacebookOptions = {
+  place?: PlaceChoice | null
+  countries?: string[]
+  ageMin?: number | null
+  altText?: string
+  videoTitle?: string
+}
+
+export type PublishOptions = {
+  instagram?: InstagramOptions
+  facebook?: FacebookOptions
 }
 
 export type PublicationRecord = {

@@ -4,7 +4,7 @@ import { useAuth } from '@/context/auth-context'
 import { api, apiPath, ApiError, uploadFile } from '@/lib/api'
 import { formatBytes } from '@/lib/format'
 import { seedSettings } from '@/data/mock'
-import type { ContentItem, ContentType, MediaAsset, SocialAccount, WorkspaceSettings } from '@/types/content'
+import type { ContentItem, ContentType, MediaAsset, PublishOptions, SocialAccount, WorkspaceSettings } from '@/types/content'
 
 type SaveContentInput = {
   title: string
@@ -14,6 +14,7 @@ type SaveContentInput = {
   audio?: { id: string; title: string; artist: string | null; audioVolume: number; videoVolume: number } | null
   coverMediaId?: string | null
   thumbOffsetMs?: number | null
+  publishOptions?: PublishOptions
   destinations: Array<{ platform: 'instagram' | 'facebook'; accountId: string; format: string }>
   mediaId: string | null
   action: 'draft' | 'schedule' | 'publish'
@@ -31,6 +32,7 @@ type ContentPatch = {
   thumbOffsetMs?: number | null
   audio?: SaveContentInput['audio']
   destinations?: SaveContentInput['destinations']
+  publishOptions?: PublishOptions
 }
 
 type ContentContextValue = {

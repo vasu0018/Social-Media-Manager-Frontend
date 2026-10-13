@@ -7,6 +7,8 @@ import { Hint, HintButton } from '@/components/shared/hint'
 import { Field } from '@/components/shared/field'
 import { SongPicker, type SongChoice } from '@/components/shared/song-picker'
 import { PageHeader } from '@/components/shared/page-header'
+import { PublishOptionsPanel } from '@/components/shared/publish-options-panel'
+import { normalizeHashtag, TagInput } from '@/components/shared/tag-input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -19,7 +21,7 @@ import { composerFormats, probeFile, validateLocalMedia } from '@/lib/formats'
 import { framesForCaption } from '@/lib/suggest-frames'
 import { formatInZone, partsInZone, todayInZone, zonedToUtc } from '@/lib/time'
 import { timezones } from '@/data/mock'
-import type { MediaAsset, Platform, SocialAccount } from '@/types/content'
+import type { InstagramUserTag, MediaAsset, Platform, PublishOptions, SocialAccount } from '@/types/content'
 
 const kinds = [
   { id: 'reel', label: 'Reel', hint: '9:16 vertical video', icon: Clapperboard, iconClass: 'text-rose-500' },
@@ -75,6 +77,15 @@ function kindFromType(type: string): Kind {
   return 'video'
 }
 
+function splitHashtags(value: string) {
+  const tags: string[] = []
+  for (const part of value.split(/[\s,]+/)) {
+    const tag = normalizeHashtag(part)
+    if (tag && !tags.some((entry) => entry.toLowerCase() === tag.toLowerCase())) tags.push(tag)
+  }
+  return tags
+}
+
 function initialKind(story: boolean, value: string | null): Kind {
   if (story || value === 'story') return 'story'
   if (value === 'image' || value === 'video' || value === 'reel') return value
@@ -92,10 +103,12 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
   const [hydrated, setHydrated] = useState(!editId)
   const [kind, setKind] = useState<Kind>(() => initialKind(story, params.get('kind')))
   const [platforms, setPlatforms] = useState<Record<Platform, boolean>>({ instagram: true, facebook: false })
-  const [accountIds, setAccountIds] = useState<Record<Platform, string>>({ instagram: '', facebook: '' })
+  const [accountIds, setAccountIds] = useState<Record<Platform, string[]>>({ instagram: [], facebook: [] })
   const [title, setTitle] = useState('')
   const [caption, setCaption] = useState('')
-  const [hashtags, setHashtags] = useState('')
+  const [hashtags, setHashtags] = useState<string[]>([])
+  const [options, setOptions] = useState<PublishOptions>({})
+  const [activeTag, setActiveTag] = useState<number | null>(null)
   const [firstComment, setFirstComment] = useState('')
   const [song, setSong] = useState<SongChoice | null>(null)
   const [cover, setCover] = useState<MediaAsset | null>(null)
@@ -130,15 +143,16 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
     setKind(kindFromType(existing.type))
     setTitle(existing.title)
     setCaption(existing.caption)
-    setHashtags(existing.hashtags ?? '')
+    setHashtags(splitHashtags(existing.hashtags ?? ''))
     setFirstComment(existing.firstComment ?? '')
+    setOptions(existing.publishOptions ?? {})
     setPlatforms({
       instagram: existing.platforms.includes('instagram'),
       facebook: existing.platforms.includes('facebook'),
     })
     setAccountIds({
-      instagram: existing.publications?.find((entry) => entry.platform === 'instagram')?.accountId ?? '',
-      facebook: existing.publications?.find((entry) => entry.platform === 'facebook')?.accountId ?? '',
+      instagram: (existing.publications ?? []).filter((entry) => entry.platform === 'instagram').map((entry) => entry.accountId),
+      facebook: (existing.publications ?? []).filter((entry) => entry.platform === 'facebook').map((entry) => entry.accountId),
     })
     setMediaId(existing.mediaId)
     const attached = media.find((entry) => entry.id === existing.mediaId)
@@ -167,7 +181,27 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
   const scheduledAt = date && time ? zonedToUtc(date, time, timezone) : null
   const nextRun = scheduledAt ? `${formatInZone(scheduledAt.toISOString(), timezone)} (${timezone})` : null
 
-  const previewCaption = useMemo(() => [caption.trim(), hashtags.trim()].filter(Boolean).join('\n\n'), [caption, hashtags])
+  const previewCaption = useMemo(() => [caption.trim(), hashtags.join(' ')].filter(Boolean).join('\n\n'), [caption, hashtags])
+  const destinationCount = selected.reduce((total, platform) => total + accountIds[platform].length, 0)
+  const stepOrder = [
+    ...(story ? [] : ['kind']),
+    'file',
+    ...(kind === 'reel' || kind === 'video' ? ['cover'] : []),
+    ...(kind === 'story' ? [] : ['caption']),
+    'accounts',
+    'details',
+    'time',
+  ]
+  const step = (name: string) => stepOrder.indexOf(name) + 1
+  const userTags = options.instagram?.userTags ?? []
+
+  function placeTag(x: number, y: number) {
+    if (activeTag == null || !userTags[activeTag]) return
+    const next: InstagramUserTag[] = userTags.map((tag, index) => index === activeTag ? { ...tag, x: Number(x.toFixed(3)), y: Number(y.toFixed(3)) } : tag)
+    setOptions((current) => ({ ...current, instagram: { ...current.instagram, userTags: next } }))
+    const following = next.findIndex((tag, index) => index > activeTag && tag.x == null)
+    setActiveTag(following >= 0 ? following : null)
+  }
 
   async function suggestCopy() {
     if (!asset?.src) {
@@ -184,7 +218,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
         body: JSON.stringify({ kind, images }),
       })
       setCaption(result.caption)
-      setHashtags(result.hashtags.join(' '))
+      setHashtags(splitHashtags(result.hashtags.join(' ')))
       toast.success(kind === 'reel' ? 'Reel caption and hashtags are ready. Edit them if you want.' : kind === 'video' ? 'Feed video caption and hashtags are ready. Edit them if you want.' : 'Post caption and hashtags are ready. Edit them if you want.')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not write a caption.')
@@ -281,9 +315,15 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
   }
 
   function preparedHashtags() {
-    return [...new Set(
-      hashtags.split(/[\s,]+/).map((tag) => tag.trim()).filter(Boolean).map((tag) => (tag.startsWith('#') ? tag : `#${tag}`)),
-    )]
+    return hashtags
+  }
+
+  function destinations() {
+    return selected.flatMap((platform) => accountIds[platform].map((accountId) => ({
+      platform,
+      accountId,
+      format: formatId(kind, platform),
+    })))
   }
 
   function validate(action: 'draft' | 'schedule' | 'publish') {
@@ -319,20 +359,28 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
       toast.error('Select at least one platform.')
       return false
     }
+    if (destinationCount > 6) {
+      setFieldError('Choose up to 6 accounts in total for one post.')
+      toast.error('Choose up to 6 accounts in total for one post.')
+      return false
+    }
     if (action !== 'draft') {
       for (const platform of selected) {
-        const account = accounts.find((entry) => entry.id === accountIds[platform])
-        if (!account) {
-          const message = `Choose an eligible ${platform === 'instagram' ? 'Instagram' : 'Facebook'} account.`
+        if (accountIds[platform].length === 0) {
+          const message = `Choose at least one ${platform === 'instagram' ? 'Instagram account' : 'Facebook Page'}.`
           setFieldError(message)
           toast.error(message)
           return false
         }
-        const problem = accountProblem(account, platform)
-        if (problem) {
-          setFieldError(problem)
-          toast.error(problem)
-          return false
+        for (const id of accountIds[platform]) {
+          const account = accounts.find((entry) => entry.id === id)
+          const problem = account ? accountProblem(account, platform) : 'That account is no longer connected.'
+          if (problem) {
+            const message = `${account?.name ?? 'Account'}: ${problem}`
+            setFieldError(message)
+            toast.error(message)
+            return false
+          }
         }
       }
       if (batch.length === 0 && !mediaId) {
@@ -377,11 +425,8 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
           coverMediaId: kind === 'reel' || kind === 'video' ? cover?.id ?? null : null,
           thumbOffsetMs: (kind === 'reel' || kind === 'video') && !cover ? thumbOffsetMs : null,
           mediaId: batch[0]?.id ?? mediaId,
-          destinations: selected.map((platform) => ({
-            platform,
-            accountId: accountIds[platform],
-            format: formatId(kind, platform),
-          })),
+          destinations: destinations(),
+          publishOptions: options,
         })
         if (action === 'schedule' && scheduledAt) await scheduleItem(editId, scheduledAt.toISOString(), timezone)
         if (action === 'publish') await publishItem(editId)
@@ -404,11 +449,8 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
           audio: songEnabled ? song : null,
           coverMediaId: kind === 'reel' || kind === 'video' ? cover?.id ?? null : null,
           thumbOffsetMs: (kind === 'reel' || kind === 'video') && !cover ? thumbOffsetMs : null,
-          destinations: selected.map((platform) => ({
-            platform,
-            accountId: accountIds[platform],
-            format: formatId(kind, platform),
-          })),
+          destinations: destinations(),
+          publishOptions: options,
           mediaId: file?.id ?? null,
           action,
           scheduledAt: action === 'schedule' && scheduledAt ? scheduledAt.toISOString() : null,
@@ -451,7 +493,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
         <div className="space-y-4">
           {story ? null : (
             <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <StepLabel n={1} title="Choose a reel, story, or post" />
+            <StepLabel n={step('kind')} title="Choose a reel, story, or post" />
             <div className="grid gap-3 sm:grid-cols-2">
               {kinds.map((entry) => {
                 const Icon = entry.icon
@@ -475,7 +517,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
             </section>
           )}
           <div className="space-y-1.5">
-            <StepLabel n={story ? 1 : 2} title="Add the finished file" />
+            <StepLabel n={step('file')} title="Add the finished file" />
             <label
               htmlFor="media-file"
               onDragOver={(event) => { event.preventDefault(); setDragging(true) }}
@@ -527,7 +569,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
           {kind === 'reel' || kind === 'video' ? (
             <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
               <div>
-                <StepLabel n={story ? 2 : 3} title="Cover" />
+                <StepLabel n={step('cover')} title="Cover" />
                 <p className="text-xs text-muted-foreground">This picture is the Reel cover. Drag the video to a moment, or upload a JPEG or PNG photo. A photo replaces the frame.</p>
               </div>
               {asset?.kind === 'video' && asset.durationMs ? (
@@ -563,7 +605,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
           {kind === 'story' ? null : (
           <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div>
-              <StepLabel n={kind === 'reel' || kind === 'video' ? 4 : 3} title={kind === 'reel' ? 'Caption and hashtags for this reel' : 'Caption and hashtags for this post'} />
+              <StepLabel n={step('caption')} title={kind === 'reel' ? 'Caption and hashtags for this reel' : 'Caption and hashtags for this post'} />
               <p className="text-xs text-muted-foreground">
                 This text is published with the file. Hashtags are placed after the caption.
               </p>
@@ -579,19 +621,26 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
               label="Hashtags"
               htmlFor="hashtags"
               error={hashtagError ?? undefined}
-              hint={selected.includes('instagram') ? `${preparedHashtags().length}/30 hashtags. Words without # are converted for you.` : 'Words without # are converted for you.'}
+              hint={`${hashtags.length}${selected.includes('instagram') ? '/30' : ''} hashtags. Press Enter, space, or comma after each one, or paste several at once. Words without # are converted for you.`}
             >
-              <Input id="hashtags" value={hashtags} onChange={(event) => { setHashtags(event.target.value); setHashtagError(null) }} placeholder="#studio #reel #behindthescenes" />
+              <TagInput
+                id="hashtags"
+                values={hashtags}
+                max={selected.includes('instagram') ? 30 : 60}
+                placeholder="#studio #reel #behindthescenes"
+                invalidMessage="Hashtags use letters, numbers, and underscores only."
+                normalize={normalizeHashtag}
+                onInvalid={setHashtagError}
+                onChange={(next) => { setHashtags(next); setHashtagError(null) }}
+              />
             </Field>
           </div>
           )}
           <fieldset className="space-y-3">
-            <legend className="text-sm font-medium"><StepLabel n={kind === 'story' ? 2 : kind === 'reel' || kind === 'video' ? 5 : 4} title="Choose Instagram, Facebook, or both" /></legend>
+            <legend className="text-sm font-medium"><StepLabel n={step('accounts')} title="Post to: choose Instagram accounts and Facebook Pages" /></legend>
             {(['instagram', 'facebook'] as const).map((platform) => {
               const format = composerFormats.find((entry) => entry.id === formatId(kind, platform))
-              const choices = accounts.filter((account) => account.platform === platform && (account.connected || account.id === accountIds[platform]))
-              const account = choices.find((entry) => entry.id === accountIds[platform])
-              const note = supportMessage(kind, platform, account)
+              const choices = accounts.filter((account) => account.platform === platform && (account.connected || accountIds[platform].includes(account.id)))
               return (
                 <div key={platform} className="rounded-xl border p-3">
                   <label className="flex items-center gap-2 text-sm font-medium">
@@ -601,32 +650,65 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
                       onChange={(event) => setPlatforms((current) => ({ ...current, [platform]: event.target.checked }))}
                     />
                     {platform === 'instagram' ? 'Instagram' : 'Facebook'}
+                    {platforms[platform] && accountIds[platform].length > 0 ? <span className="text-xs font-normal text-muted-foreground">· {accountIds[platform].length} selected</span> : null}
                   </label>
                   <p className="mt-1 text-xs text-muted-foreground">{format?.note}</p>
                   {platforms[platform] ? (
-                    <NativeSelect
-                      className="mt-3"
-                      aria-label={`${platform} account`}
-                      value={accountIds[platform]}
-                      onChange={(event) => setAccountIds((current) => ({ ...current, [platform]: event.target.value }))}
-                    >
-                      <option value="">Select account</option>
-                      {choices.map((entry) => {
-                        const problem = accountProblem(entry, platform)
-                        return <option key={entry.id} value={entry.id} disabled={Boolean(problem)}>{entry.name} {problem ? `— ${problem}` : ''}</option>
-                      })}
-                    </NativeSelect>
+                    choices.length === 0 ? (
+                      <p className="mt-3 text-sm text-amber-800">No connected {platform === 'instagram' ? 'Instagram account' : 'Facebook Page'}. Connect one on <Link className="underline" to="/accounts">Social Accounts</Link>.</p>
+                    ) : (
+                      <ul className="mt-3 space-y-1.5" aria-label={`${platform} accounts`}>
+                        {choices.map((entry) => {
+                          const problem = accountProblem(entry, platform)
+                          const checked = accountIds[platform].includes(entry.id)
+                          return (
+                            <li key={entry.id}>
+                              <label className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${problem ? 'cursor-not-allowed border-slate-200 bg-slate-50 opacity-70' : checked ? 'cursor-pointer border-indigo-600 bg-indigo-50/60' : 'cursor-pointer border-slate-200 hover:border-slate-300'}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={Boolean(problem) && !checked}
+                                  onChange={(event) => setAccountIds((current) => ({
+                                    ...current,
+                                    [platform]: event.target.checked ? [...current[platform], entry.id] : current[platform].filter((id) => id !== entry.id),
+                                  }))}
+                                />
+                                <AccountAvatar account={entry} />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate font-medium">{entry.name}</span>
+                                  <span className={`block truncate text-xs ${problem ? 'text-amber-800' : 'text-muted-foreground'}`}>{problem ?? entry.handle}</span>
+                                </span>
+                              </label>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )
                   ) : null}
-                  {platforms[platform] && note ? (
-                    <p className={`mt-2 text-sm ${note.ok ? 'text-emerald-800' : 'text-amber-800'}`} role="status">{note.text}</p>
+                  {platforms[platform] && kind === 'story' && accountIds[platform].length > 0 ? (
+                    accountIds[platform].map((id) => {
+                      const note = supportMessage(kind, platform, accounts.find((entry) => entry.id === id))
+                      return note?.ok ? null : note ? <p key={id} className="mt-2 text-sm text-amber-800" role="status">{note.text}</p> : null
+                    })
                   ) : null}
                 </div>
               )
             })}
+            {destinationCount > 6 ? <p className="text-sm text-destructive">One post can go to up to 6 accounts in total.</p> : null}
           </fieldset>
           {kind === 'story' ? null : (
-            <SongPicker accountId={accountIds.instagram} enabled={songEnabled} facebookToo={platforms.facebook} value={song} onChange={setSong} />
+            <SongPicker accountId={accountIds.instagram[0] ?? ''} enabled={songEnabled} facebookToo={platforms.facebook} value={song} onChange={setSong} />
           )}
+          <PublishOptionsPanel
+            kind={kind}
+            selected={selected}
+            value={options}
+            onChange={setOptions}
+            songChosen={Boolean(song)}
+            activeTag={activeTag}
+            onActiveTag={setActiveTag}
+            step={step('details')}
+          />
           <Field label="Title" htmlFor="title" hint="Internal only. This is not sent to Instagram or Facebook." error={fieldError && title.trim().length < 2 ? fieldError : undefined}>
             <Input id="title" value={title} maxLength={120} onChange={(event) => setTitle(event.target.value)} />
           </Field>
@@ -638,7 +720,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
             <p className="text-sm text-muted-foreground">A first comment is available for Instagram feed posts and Reels.</p>
           )}
           <div className="space-y-3">
-            <StepLabel n={kind === 'story' ? 3 : 5} title="Pick a time if this should wait" />
+            <StepLabel n={step('time')} title="Pick a time if this should wait" />
           <div className="grid gap-3 sm:grid-cols-3">
             <Field label="Publication date" htmlFor="date"><Input id="date" type="date" min={todayInZone(timezone).date} value={date} onChange={(event) => setDate(event.target.value < todayInZone(timezone).date ? todayInZone(timezone).date : event.target.value)} /></Field>
             <Field label="Publication time" htmlFor="time"><Input id="time" type="time" value={time} onChange={(event) => setTime(event.target.value)} /></Field>
@@ -664,8 +746,32 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
               <CardHeader><CardTitle>{platform === 'instagram' ? 'Instagram preview' : 'Facebook preview'}</CardTitle></CardHeader>
               <CardContent>
                 {platform === 'instagram'
-                  ? <InstagramPreview story={kind === 'story' || kind === 'reel'} caption={previewCaption} asset={asset} poster={(kind === 'reel' || kind === 'video') && cover?.src ? cover.src : null} seekMs={kind === 'reel' || kind === 'video' ? thumbOffsetMs : undefined} />
-                  : <FacebookPreview tall={kind === 'story' || kind === 'reel'} caption={previewCaption} asset={asset} poster={(kind === 'reel' || kind === 'video') && cover?.src ? cover.src : null} seekMs={kind === 'reel' || kind === 'video' ? thumbOffsetMs : undefined} name={accounts.find((account) => account.id === accountIds.facebook)?.name ?? 'Facebook Page'} />}
+                  ? (
+                    <InstagramPreview
+                      story={kind === 'story' || kind === 'reel'}
+                      caption={previewCaption}
+                      asset={asset}
+                      poster={(kind === 'reel' || kind === 'video') && cover?.src ? cover.src : null}
+                      seekMs={kind === 'reel' || kind === 'video' ? thumbOffsetMs : undefined}
+                      name={accounts.find((account) => account.id === accountIds.instagram[0])?.handle ?? 'instagram'}
+                      location={kind === 'story' ? null : options.instagram?.location?.name ?? null}
+                      tags={kind === 'image' ? userTags : []}
+                      placing={kind === 'image' && activeTag != null ? userTags[activeTag]?.username ?? null : null}
+                      onPlace={placeTag}
+                    />
+                  )
+                  : (
+                    <FacebookPreview
+                      tall={kind === 'story' || kind === 'reel'}
+                      caption={previewCaption}
+                      asset={asset}
+                      poster={(kind === 'reel' || kind === 'video') && cover?.src ? cover.src : null}
+                      seekMs={kind === 'reel' || kind === 'video' ? thumbOffsetMs : undefined}
+                      name={accounts.find((account) => account.id === accountIds.facebook[0])?.name ?? 'Facebook Page'}
+                      place={kind === 'image' ? options.facebook?.place?.name ?? null : null}
+                      restricted={(kind === 'image' || kind === 'video') && ((options.facebook?.countries?.length ?? 0) > 0 || Boolean(options.facebook?.ageMin))}
+                    />
+                  )}
               </CardContent>
             </Card>
           ))}
@@ -675,7 +781,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
         open={confirm === 'publish'}
         onOpenChange={(open) => { if (!open) setConfirm(null) }}
         title="Publish this now?"
-        description={`Caption: ${caption.trim() || 'None'}\nHashtags: ${preparedHashtags().join(' ') || 'None'}\n\nReel Studio will create ${selected.length === 2 ? 'a separate publishing job for Instagram and Facebook' : 'one publishing job'}. Success is shown only after Meta confirms publication.`}
+        description={`Caption: ${caption.trim() || 'None'}\nHashtags: ${preparedHashtags().join(' ') || 'None'}${optionSummary(kind, options)}\n\nReel Studio will create ${destinationCount === 1 ? 'one publishing job' : `${destinationCount} separate publishing jobs, one per account`}. Success is shown only after Meta confirms publication.`}
         confirmLabel="Publish Now"
         onConfirm={() => void submit('publish')}
       />
@@ -683,12 +789,37 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
         open={confirm === 'schedule'}
         onOpenChange={(open) => { if (!open) setConfirm(null) }}
         title="Confirm this schedule?"
-        description={nextRun ? `Caption: ${caption.trim() || 'None'}\nHashtags: ${preparedHashtags().join(' ') || 'None'}\n\nThe server will publish at ${nextRun}, even if this browser is closed.` : 'Choose a schedule time.'}
+        description={nextRun ? `Caption: ${caption.trim() || 'None'}\nHashtags: ${preparedHashtags().join(' ') || 'None'}${optionSummary(kind, options)}\n\nThe server will publish to ${destinationCount === 1 ? 'one account' : `${destinationCount} accounts`} at ${nextRun}, even if this browser is closed.` : 'Choose a schedule time.'}
         confirmLabel="Schedule"
         onConfirm={() => void submit('schedule')}
       />
     </div>
   )
+}
+
+function optionSummary(kind: Kind, options: PublishOptions) {
+  if (kind === 'story') return ''
+  const lines: string[] = []
+  const instagram = options.instagram ?? {}
+  const facebook = options.facebook ?? {}
+  if (instagram.location) lines.push(`Instagram location: ${instagram.location.name}`)
+  if (instagram.userTags?.length) lines.push(`Tagged: ${instagram.userTags.map((tag) => `@${tag.username}`).join(', ')}`)
+  if (instagram.collaborators?.length) lines.push(`Collaborators: ${instagram.collaborators.map((name) => `@${name}`).join(', ')}`)
+  if (instagram.commentsOff) lines.push('Instagram commenting: off')
+  if (kind === 'reel' && instagram.trialReel && instagram.trialReel !== 'off') lines.push('Trial reel: non-followers first')
+  if (kind === 'image' && facebook.place) lines.push(`Facebook check-in: ${facebook.place.name}`)
+  if ((kind === 'image' || kind === 'video') && (facebook.countries?.length || facebook.ageMin)) {
+    lines.push(`Facebook audience: ${[facebook.countries?.length ? facebook.countries.join(', ') : null, facebook.ageMin ? `${facebook.ageMin}+` : null].filter(Boolean).join(' · ')}`)
+  }
+  return lines.length > 0 ? `\n${lines.join('\n')}` : ''
+}
+
+function AccountAvatar({ account }: { account: SocialAccount }) {
+  const [failed, setFailed] = useState(false)
+  if (account.pictureUrl && !failed) {
+    return <img src={account.pictureUrl} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" onError={() => setFailed(true)} />
+  }
+  return <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold">{account.name.slice(0, 1).toUpperCase()}</span>
 }
 
 function StepLabel({ n, title }: { n: number; title: string }) {
@@ -697,23 +828,76 @@ function StepLabel({ n, title }: { n: number; title: string }) {
   )
 }
 
-function InstagramPreview({ story, caption, asset, poster, seekMs }: { story: boolean; caption: string; asset: MediaAsset | null; poster?: string | null; seekMs?: number }) {
+function InstagramPreview({
+  story,
+  caption,
+  asset,
+  poster,
+  seekMs,
+  name,
+  location,
+  tags,
+  placing,
+  onPlace,
+}: {
+  story: boolean
+  caption: string
+  asset: MediaAsset | null
+  poster?: string | null
+  seekMs?: number
+  name: string
+  location: string | null
+  tags: InstagramUserTag[]
+  placing: string | null
+  onPlace: (x: number, y: number) => void
+}) {
   return (
     <div className={`mx-auto overflow-hidden rounded-[28px] border bg-black text-white shadow-sm ${story ? 'relative aspect-[9/16] w-full max-w-[260px]' : 'w-full max-w-[320px]'}`}>
+      {story ? null : (
+        <div className="px-3 py-2">
+          <p className="text-xs font-semibold">{name.replace(/^@/, '')}</p>
+          {location ? <p className="text-[11px] text-slate-300">{location}</p> : null}
+        </div>
+      )}
       <div className={story ? 'absolute inset-0' : 'relative aspect-square'}>
         <PreviewMedia asset={asset} cover={story} poster={poster} seekMs={seekMs} />
+        {tags.filter((tag) => tag.x != null && tag.y != null).map((tag) => (
+          <span
+            key={tag.username}
+            className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold"
+            style={{ left: `${(tag.x ?? 0.5) * 100}%`, top: `${(tag.y ?? 0.5) * 100}%` }}
+          >
+            {tag.username}
+          </span>
+        ))}
+        {placing ? (
+          <button
+            type="button"
+            className="absolute inset-0 cursor-crosshair bg-indigo-500/10"
+            aria-label={`Place the tag for ${placing}`}
+            onClick={(event) => {
+              const box = event.currentTarget.getBoundingClientRect()
+              onPlace((event.clientX - box.left) / box.width, (event.clientY - box.top) / box.height)
+            }}
+          >
+            <span className="absolute left-2 top-2 rounded bg-indigo-600 px-2 py-0.5 text-[11px] font-semibold">Tap where @{placing} is</span>
+          </button>
+        ) : null}
       </div>
       {story ? null : <p className="max-h-28 overflow-hidden whitespace-pre-wrap bg-black px-3 py-2 text-xs">{caption || 'Caption preview'}</p>}
     </div>
   )
 }
 
-function FacebookPreview({ tall, caption, asset, name, poster, seekMs }: { tall: boolean; caption: string; asset: MediaAsset | null; name: string; poster?: string | null; seekMs?: number }) {
+function FacebookPreview({ tall, caption, asset, name, poster, seekMs, place, restricted }: { tall: boolean; caption: string; asset: MediaAsset | null; name: string; poster?: string | null; seekMs?: number; place: string | null; restricted: boolean }) {
   return (
     <div className="overflow-hidden rounded-xl border bg-white">
       <div className="flex items-center gap-2 px-3 py-2">
         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold">{name.slice(0, 1)}</span>
-        <span className="text-sm font-semibold">{name}</span>
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold">{name}{place ? <span className="font-normal text-slate-600"> is at <span className="font-semibold text-slate-900">{place}</span></span> : null}</span>
+          <span className="block text-[11px] text-muted-foreground">Just now · {restricted ? 'Restricted audience' : 'Public'}</span>
+        </span>
       </div>
       <p className="whitespace-pre-wrap px-3 pb-2 text-sm">{caption || 'Caption preview'}</p>
       <div className={tall ? 'relative mx-auto aspect-[9/16] w-full max-w-[260px] bg-black' : 'relative aspect-video bg-slate-950'}>
