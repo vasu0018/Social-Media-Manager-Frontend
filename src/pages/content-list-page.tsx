@@ -125,7 +125,7 @@ export function ContentListPage({
           )}
           <NativeSelect className="lg:w-48" aria-label="Filter by account" value={accountId} onChange={(event) => update('account', event.target.value)}>
             <option value="all">All accounts</option>
-            {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+            {accounts.map((account) => <option key={account.id} value={account.id}>{account.name}{account.connected ? '' : ' (disconnected)'}</option>)}
           </NativeSelect>
           <Input className="lg:w-40" type="date" aria-label="From date" value={from} onChange={(event) => update('from', event.target.value)} />
           <Input className="lg:w-40" type="date" aria-label="To date" value={to} onChange={(event) => update('to', event.target.value)} />

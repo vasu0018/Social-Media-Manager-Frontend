@@ -589,7 +589,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
             <legend className="text-sm font-medium"><StepLabel n={kind === 'story' ? 2 : kind === 'reel' || kind === 'video' ? 5 : 4} title="Choose Instagram, Facebook, or both" /></legend>
             {(['instagram', 'facebook'] as const).map((platform) => {
               const format = composerFormats.find((entry) => entry.id === formatId(kind, platform))
-              const choices = accounts.filter((account) => account.platform === platform)
+              const choices = accounts.filter((account) => account.platform === platform && (account.connected || account.id === accountIds[platform]))
               const account = choices.find((entry) => entry.id === accountIds[platform])
               const note = supportMessage(kind, platform, account)
               return (

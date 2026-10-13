@@ -58,6 +58,7 @@ type ContentContextValue = {
   updateSettings: (settings: WorkspaceSettings) => void
   replaceAccount: (account: SocialAccount) => void
   removeAccountConnection: (id: string) => Promise<void>
+  deleteAccount: (id: string) => Promise<{ removedPublications: number }>
 }
 
 const ContentContext = createContext<ContentContextValue | null>(null)
@@ -286,6 +287,11 @@ export function ContentProvider({ children }: { children: ReactNode }) {
     removeAccountConnection: async (id) => {
       const data = await api<{ account: SocialAccount }>(`/api/accounts/${id}/disconnect`, { method: 'POST' })
       setAccounts((current) => current.map((entry) => entry.id === id ? data.account : entry))
+    },
+    deleteAccount: async (id) => {
+      const data = await api<{ removedPublications: number }>(`/api/accounts/${id}/delete`, { method: 'POST' })
+      await refresh()
+      return data
     },
   }), [accounts, items, loading, media, refresh, settings])
 

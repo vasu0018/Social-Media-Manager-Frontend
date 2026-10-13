@@ -20,7 +20,7 @@ const connectionErrors: Record<string, string> = {
 }
 
 export function AccountConnections({ returnTo = '/accounts' }: { returnTo?: string }) {
-  const { accounts, items, refresh, removeAccountConnection, replaceAccount } = useContent()
+  const { accounts, items, refresh, removeAccountConnection, replaceAccount, deleteAccount } = useContent()
   const [params, setParams] = useSearchParams()
   const [comments, setComments] = useState(false)
   const [instagramReady, setInstagramReady] = useState<boolean | null>(null)
@@ -28,6 +28,7 @@ export function AccountConnections({ returnTo = '/accounts' }: { returnTo?: stri
   const [redirectUri, setRedirectUri] = useState('')
   const [apiVersion, setApiVersion] = useState('v26.0')
   const [disconnecting, setDisconnecting] = useState<SocialAccount | null>(null)
+  const [deleting, setDeleting] = useState<SocialAccount | null>(null)
   const finishing = useRef(false)
 
   useEffect(() => {
@@ -147,8 +148,25 @@ export function AccountConnections({ returnTo = '/accounts' }: { returnTo?: stri
         </CardContent>
       </Card>
 
-      <AccountGroup title="Instagram" accounts={grouped.instagram} returnTo={returnTo} onDisconnect={setDisconnecting} onRefresh={replaceAccount} />
-      <AccountGroup title="Facebook Pages" accounts={grouped.facebook} returnTo={returnTo} onDisconnect={setDisconnecting} onRefresh={replaceAccount} />
+      <AccountGroup title="Instagram" accounts={grouped.instagram} returnTo={returnTo} onDisconnect={setDisconnecting} onDelete={setDeleting} onRefresh={replaceAccount} />
+      <AccountGroup title="Facebook Pages" accounts={grouped.facebook} returnTo={returnTo} onDisconnect={setDisconnecting} onDelete={setDeleting} onRefresh={replaceAccount} />
+
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => { if (!open) setDeleting(null) }}
+        title={`Delete ${deleting?.name ?? 'this account'}?`}
+        description={deleteCopy(deleting, items)}
+        confirmLabel="Delete account"
+        destructive
+        onConfirm={() => {
+          if (!deleting) return
+          const account = deleting
+          setDeleting(null)
+          void deleteAccount(account.id)
+            .then(() => toast.success(`${account.name} deleted`))
+            .catch((error: unknown) => toast.error(error instanceof Error ? error.message : 'Delete failed'))
+        }}
+      />
 
       <ConfirmDialog
         open={disconnecting !== null}
@@ -175,12 +193,14 @@ function AccountGroup({
   accounts,
   returnTo,
   onDisconnect,
+  onDelete,
   onRefresh,
 }: {
   title: string
   accounts: SocialAccount[]
   returnTo: string
   onDisconnect: (account: SocialAccount) => void
+  onDelete: (account: SocialAccount) => void
   onRefresh: (account: SocialAccount) => void
 }) {
   return (
@@ -191,7 +211,7 @@ function AccountGroup({
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {accounts.map((account) => (
-            <AccountCard key={account.id} account={account} returnTo={returnTo} onDisconnect={onDisconnect} onRefresh={onRefresh} />
+            <AccountCard key={account.id} account={account} returnTo={returnTo} onDisconnect={onDisconnect} onDelete={onDelete} onRefresh={onRefresh} />
           ))}
         </div>
       )}
@@ -203,11 +223,13 @@ function AccountCard({
   account,
   returnTo,
   onDisconnect,
+  onDelete,
   onRefresh,
 }: {
   account: SocialAccount
   returnTo: string
   onDisconnect: (account: SocialAccount) => void
+  onDelete: (account: SocialAccount) => void
   onRefresh: (account: SocialAccount) => void
 }) {
   const [refreshing, setRefreshing] = useState(false)
@@ -272,7 +294,9 @@ function AccountCard({
               {refreshing ? 'Checking…' : 'Check access'}
             </Button>
           )}
-          {account.connected ? <Button type="button" variant="outline" onClick={() => onDisconnect(account)}>Disconnect</Button> : null}
+          {account.connected
+            ? <Button type="button" variant="outline" onClick={() => onDisconnect(account)}>Disconnect</Button>
+            : <Button type="button" variant="destructive" onClick={() => onDelete(account)}>Delete</Button>}
         </div>
       </CardContent>
     </Card>
@@ -319,4 +343,14 @@ function disconnectCopy(account: SocialAccount | null, items: { status: string; 
   const scheduled = items.filter((item) => item.status === 'scheduled' && item.accountIds.includes(account.id)).length
   if (scheduled === 0) return 'The saved access token is deleted. Scheduled posts stay in the workspace and will not publish until you connect this account again.'
   return `${scheduled} scheduled item${scheduled === 1 ? '' : 's'} will stay in the workspace and will not publish until you connect this account again.`
+}
+
+function deleteCopy(account: SocialAccount | null, items: { status: string; accountIds: string[] }[]) {
+  if (!account) return ''
+  const linked = items.filter((item) => item.accountIds.includes(account.id))
+  const scheduled = linked.filter((item) => item.status === 'scheduled').length
+  const base = 'The account is removed from Reel Studio and will no longer appear when you create or schedule posts. You can connect it again later.'
+  if (linked.length === 0) return base
+  const scheduledNote = scheduled > 0 ? ` ${scheduled} scheduled post${scheduled === 1 ? '' : 's'} will not go to this account.` : ''
+  return `${base} It is linked to ${linked.length} post${linked.length === 1 ? '' : 's'}; those posts stay, but this account is removed from them.${scheduledNote} A post left with no account becomes a draft.`
 }
