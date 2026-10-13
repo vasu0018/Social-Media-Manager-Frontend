@@ -39,19 +39,29 @@ function formatId(kind: Kind, platform: Platform) {
 
 function supportMessage(kind: Kind, platform: Platform, account: SocialAccount | undefined) {
   if (kind !== 'story') return null
-  if (!account) return 'Not supported by current API integration until an eligible account is connected.'
+  const blocked = (text: string) => ({ ok: false, text })
+  if (!account) return blocked('Select an account. Stories need a connected Business account.')
+  if (!account.connected || account.tokenStatus === 'disconnected') {
+    return blocked('Disconnected. Connect this account again on Social Accounts.')
+  }
+  if (account.tokenStatus === 'expired' || account.tokenStatus === 'revoked') {
+    return blocked('Access expired. Connect this account again on Social Accounts.')
+  }
+  if (platform === 'instagram' && account.accountType === 'MEDIA_CREATOR') {
+    return blocked('Instagram reports this as a Creator account. Stories need a Business account: switch it in Instagram, then press Refresh on Social Accounts.')
+  }
   if (platform === 'instagram' && account.accountType !== 'BUSINESS') {
-    return 'Not supported by current API integration. Instagram Stories publish only to Business accounts.'
+    return blocked('Instagram Stories need a Business account. Press Refresh on Social Accounts to check this account again.')
   }
   if (platform === 'facebook' && account.eligible === false) {
-    return account.eligibilityReason || 'Not supported by current API integration for this Page role.'
+    return blocked(account.eligibilityReason || 'Not supported by current API integration for this Page role.')
   }
-  if (!account.connected || account.tokenStatus === 'expired' || account.tokenStatus === 'revoked') {
-    return 'Not supported by current API integration until this account is reconnected.'
+  return {
+    ok: true,
+    text: platform === 'instagram'
+      ? 'Instagram Stories are supported for this Business account.'
+      : 'Facebook photo and video Stories are supported for this Page.',
   }
-  return platform === 'instagram'
-    ? 'Instagram Stories are supported for this Business account.'
-    : 'Facebook photo and video Stories are supported for this Page.'
 }
 
 function listRoute(kind: Kind) {
@@ -184,8 +194,8 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
   }
 
   function accountProblem(account: SocialAccount, platform: Platform) {
-    const blocked = supportMessage(kind, platform, account)
-    if (kind === 'story' && blocked?.startsWith('Not supported')) return blocked
+    const story = supportMessage(kind, platform, account)
+    if (story && !story.ok) return story.text
     if (!account.connected) return 'Disconnected'
     if (account.tokenStatus === 'expired' || account.tokenStatus === 'revoked') return 'Reconnect required'
     if (account.eligible === false) return account.eligibilityReason || 'Not eligible'
@@ -608,7 +618,7 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
                     </NativeSelect>
                   ) : null}
                   {platforms[platform] && note ? (
-                    <p className={`mt-2 text-sm ${note.startsWith('Not supported') ? 'text-amber-800' : 'text-emerald-800'}`} role="status">{note}</p>
+                    <p className={`mt-2 text-sm ${note.ok ? 'text-emerald-800' : 'text-amber-800'}`} role="status">{note.text}</p>
                   ) : null}
                 </div>
               )
