@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import { Hint, HintButton } from '@/components/shared/hint'
 import { Field } from '@/components/shared/field'
+import { OwnSongPanel } from '@/components/shared/own-song-panel'
 import { SongPicker, type SongChoice } from '@/components/shared/song-picker'
 import { PageHeader } from '@/components/shared/page-header'
 import { PublishOptionsPanel } from '@/components/shared/publish-options-panel'
@@ -738,6 +739,17 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
             })}
             {destinationCount > maxAccounts ? <p className="text-sm text-destructive">One post can go to up to {maxAccounts} accounts in total.</p> : null}
           </fieldset>
+          {kind === 'image' ? null : (
+            <OwnSongPanel
+              asset={asset}
+              format={formatId(kind, selected[0] ?? 'instagram')}
+              onMixed={(previous, next) => {
+                setBatch((current) => current.some((entry) => entry.id === previous.id) ? current.map((entry) => entry.id === previous.id ? next : entry) : [...current, next])
+                setMediaId(next.id)
+                setSong(null)
+              }}
+            />
+          )}
           {kind === 'story' ? null : (
             <SongPicker accountId={accountIds.instagram.find((id) => accounts.find((entry) => entry.id === id)?.canBrowseSongs) ?? accountIds.instagram[0] ?? ''} enabled={songEnabled} facebookToo={platforms.facebook} value={song} onChange={setSong} />
           )}

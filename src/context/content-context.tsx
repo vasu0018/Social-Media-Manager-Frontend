@@ -56,6 +56,7 @@ type ContentContextValue = {
   publishNow: (id: string) => void
   retryItem: (id: string) => void
   uploadMedia: (file: File, format: string | null, onProgress: (percent: number) => void) => Promise<{ media: MediaAsset; errors: string[] }>
+  addSong: (mediaId: string, song: File, fields: Record<string, string>, onProgress: (percent: number) => void) => Promise<{ media: MediaAsset; errors: string[] }>
   deleteMedia: (id: string) => Promise<void>
   updateSettings: (settings: WorkspaceSettings) => void
   replaceAccount: (account: SocialAccount) => void
@@ -271,6 +272,12 @@ export function ContentProvider({ children }: { children: ReactNode }) {
     },
     uploadMedia: async (file, format, onProgress) => {
       const result = await uploadFile('/api/media', file, format ? { format } : {}, onProgress)
+      const asset = asMedia(result.media)
+      setMedia((current) => [asset, ...current.filter((entry) => entry.id !== asset.id)])
+      return { media: asset, errors: result.errors }
+    },
+    addSong: async (mediaId, song, fields, onProgress) => {
+      const result = await uploadFile(`/api/media/${mediaId}/song`, song, fields, onProgress)
       const asset = asMedia(result.media)
       setMedia((current) => [asset, ...current.filter((entry) => entry.id !== asset.id)])
       return { media: asset, errors: result.errors }

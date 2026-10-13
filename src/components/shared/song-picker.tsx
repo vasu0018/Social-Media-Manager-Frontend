@@ -67,7 +67,7 @@ export function SongPicker({
       api<{ tracks: Track[]; available: boolean; needsPage?: boolean; needsLink?: boolean; reason: string | null }>(`/api/audio?${params.toString()}`)
         .then((data) => {
           if (!active) return
-          setTracks(data.tracks)
+          setTracks([...data.tracks.filter((track) => track.previewUrl), ...data.tracks.filter((track) => !track.previewUrl)])
           setNeedsPage(Boolean(data.needsPage))
           setNeedsLink(Boolean(data.needsLink))
           setReason(data.available ? null : data.reason)
@@ -148,6 +148,9 @@ export function SongPicker({
           <p className="mt-1 text-xs text-muted-foreground">
             Trending Instagram songs. Play a preview, then select the one to attach when the Reel is published.
           </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Instagram gives apps only the music that business accounts may use, so many original film songs are not in this list.
+          </p>
         </div>
       </div>
       {!accountId ? <p className="text-sm text-muted-foreground">Choose an Instagram account to load songs.</p> : null}
@@ -178,7 +181,7 @@ export function SongPicker({
               return (
                 <li key={track.id}>
                   <div className={`flex items-center gap-3 rounded-lg px-2 py-2 ${selected ? 'bg-slate-100' : 'hover:bg-slate-50'}`}>
-                    <button type="button" className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md bg-slate-200" onClick={() => play(track)} aria-label={playingId === track.id ? 'Pause preview' : 'Play preview'}>
+                    <button type="button" className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md bg-slate-200" onClick={() => play(track)} aria-label={!track.previewUrl ? `Select ${track.title} (no preview)` : playingId === track.id ? 'Pause preview' : 'Play preview'}>
                       {track.artworkUrl ? <img src={mediaAddress(track.artworkUrl)} alt="" className="h-full w-full object-cover" /> : null}
                       <span className="absolute inset-0 flex items-center justify-center bg-black/25 text-white">
                         {!track.previewUrl ? <Music2 className="h-4 w-4" /> : loadingId === track.id ? <Loader2 className="h-4 w-4 animate-spin" /> : playingId === track.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
@@ -190,7 +193,7 @@ export function SongPicker({
                       onClick={() => choose(track)}
                     >
                       <span className="block truncate text-sm font-semibold">{track.title}</span>
-                      <span className="block truncate text-xs text-muted-foreground">{[track.artist, lengthLabel(track.durationMs)].filter(Boolean).join(' · ')}</span>
+                      <span className="block truncate text-xs text-muted-foreground">{[track.artist, lengthLabel(track.durationMs), track.previewUrl ? null : 'No preview'].filter(Boolean).join(' · ')}</span>
                     </button>
                     {selected ? <Check className="h-4 w-4 shrink-0 text-slate-900" aria-label="Selected" /> : null}
                   </div>
