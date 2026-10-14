@@ -37,15 +37,19 @@ type AudioResponse = {
   available: boolean
   needsPage?: boolean
   needsLink?: boolean
+  needsAdsPermission?: boolean
+  adsMusic?: boolean
   reason: string | null
 }
+
+type Source = 'instagram' | 'ads'
 
 function previewFirst(tracks: Track[]) {
   return [...tracks.filter((track) => track.previewUrl), ...tracks.filter((track) => !track.previewUrl)]
 }
 
-function songsPath(accountId: string, query: string, cursor: string | null = null) {
-  const params = new URLSearchParams({ accountId, type: 'music', q: query })
+function songsPath(accountId: string, query: string, source: Source, cursor: string | null = null) {
+  const params = new URLSearchParams({ accountId, type: 'music', q: query, source })
   if (cursor) params.set('cursor', cursor)
   return `/api/audio?${params.toString()}`
 }
@@ -66,6 +70,9 @@ export function SongPicker({
   const [query, setQuery] = useState('')
   const search = query.trim()
   const requestQuery = search.length >= 2 ? search : ''
+  const [source, setSource] = useState<Source>('instagram')
+  const [adsMusic, setAdsMusic] = useState(false)
+  const [needsAdsPermission, setNeedsAdsPermission] = useState(false)
   const [tracks, setTracks] = useState<Track[]>([])
   const [needsPage, setNeedsPage] = useState(false)
   const [needsLink, setNeedsLink] = useState(false)
@@ -93,13 +100,15 @@ export function SongPicker({
     setLoadingMore(false)
     setNextCursor(null)
     const timer = window.setTimeout(() => {
-      api<AudioResponse>(songsPath(accountId, requestQuery))
+      api<AudioResponse>(songsPath(accountId, requestQuery, source))
         .then((data) => {
           if (version !== listVersion.current) return
           setTracks(previewFirst(data.tracks))
           setNextCursor(data.hasMore ? data.nextCursor : null)
+          setAdsMusic(Boolean(data.adsMusic))
           setNeedsPage(Boolean(data.needsPage))
           setNeedsLink(Boolean(data.needsLink))
+          setNeedsAdsPermission(Boolean(data.needsAdsPermission))
           setReason(data.available ? null : data.reason)
         })
         .catch((failure) => {
@@ -107,6 +116,7 @@ export function SongPicker({
           setTracks([])
           setNeedsPage(false)
           setNeedsLink(false)
+          setNeedsAdsPermission(false)
           setError(failure instanceof Error ? failure.message : 'Songs could not be loaded.')
         })
         .finally(() => {
@@ -114,7 +124,7 @@ export function SongPicker({
         })
     }, 300)
     return () => window.clearTimeout(timer)
-  }, [accountId, enabled, requestQuery])
+  }, [accountId, enabled, requestQuery, source])
 
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore || loading) return
@@ -122,7 +132,7 @@ export function SongPicker({
     setLoadingMore(true)
     setMoreError(null)
     try {
-      const data = await api<AudioResponse>(songsPath(accountId, requestQuery, nextCursor))
+      const data = await api<AudioResponse>(songsPath(accountId, requestQuery, source, nextCursor))
       if (version !== listVersion.current) return
       setTracks((current) => {
         const listed = new Set(current.map((track) => track.id))
@@ -134,7 +144,7 @@ export function SongPicker({
     } finally {
       if (version === listVersion.current) setLoadingMore(false)
     }
-  }, [accountId, loading, loadingMore, nextCursor, requestQuery])
+  }, [accountId, loading, loadingMore, nextCursor, requestQuery, source])
 
   useEffect(() => {
     const end = endRef.current
@@ -223,12 +233,34 @@ export function SongPicker({
       ) : null}
       {accountId && !needsPage ? (
         <>
+          {adsMusic ? (
+            <div className="flex gap-2" role="group" aria-label="Song library">
+              {([['instagram', 'Instagram songs'], ['ads', 'Ads music']] as const).map(([id, label]) => (
+                <Button key={id} type="button" size="sm" variant={source === id ? 'default' : 'outline'} aria-pressed={source === id} onClick={() => setSource(id)}>
+                  {label}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+          {source === 'ads' ? (
+            <p className="text-xs text-muted-foreground">
+              Meta&apos;s music for ads. Instagram may refuse some of these songs on a normal Reel; the publish result will say so.
+            </p>
+          ) : null}
+          {needsAdsPermission ? (
+            <div className="space-y-3 rounded-lg bg-amber-50 p-3">
+              <p className="text-sm text-amber-950" role="status">{reason}</p>
+              <Button type="button" size="sm" asChild>
+                <Link to="/settings#connections">Open Settings</Link>
+              </Button>
+            </div>
+          ) : null}
           <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search trending songs or artists" aria-label="Search trending songs" />
           <div className="rounded-lg border bg-slate-50 p-3">
             <audio ref={audioRef} controls className="w-full" preload="none" />
             <p className="mt-1 text-xs text-muted-foreground">{playingId ? 'Playing preview' : 'Choose a song below, then press play.'}</p>
           </div>
-          <p className="text-xs font-medium text-slate-700">{requestQuery ? `Trending results for “${requestQuery}”` : 'Trending songs'}</p>
+          <p className="text-xs font-medium text-slate-700">{source === 'ads' ? (requestQuery ? `Ads music for “${requestQuery}”` : 'Ads music') : requestQuery ? `Trending results for “${requestQuery}”` : 'Trending songs'}</p>
           {loading ? <p className="text-sm text-muted-foreground">Loading songs…</p> : null}
           {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
           {playError ? <p className="text-sm text-amber-800" role="status">{playError}</p> : null}
@@ -270,7 +302,7 @@ export function SongPicker({
               </li>
             ) : null}
           </ul>
-          {!loading && tracks.length === 0 && !error ? <p className="text-sm text-muted-foreground">{requestQuery ? `No songs matched “${requestQuery}”.` : 'Instagram did not return trending songs for this account.'}</p> : null}
+          {!loading && tracks.length === 0 && !error && !needsAdsPermission ? <p className="text-sm text-muted-foreground">{requestQuery ? `No songs matched “${requestQuery}”.` : 'Instagram did not return trending songs for this account.'}</p> : null}
           {value ? (
             <div className="space-y-3 rounded-lg bg-slate-50 p-3">
               <div className="flex items-center justify-between gap-3">
