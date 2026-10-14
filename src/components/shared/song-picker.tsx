@@ -1,5 +1,5 @@
 import { Check, Loader2, Music2, Pause, Play } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -30,6 +30,26 @@ function mediaAddress(url: string) {
   return url.startsWith('http') ? url : apiPath(url)
 }
 
+type AudioResponse = {
+  tracks: Track[]
+  nextCursor: string | null
+  hasMore: boolean
+  available: boolean
+  needsPage?: boolean
+  needsLink?: boolean
+  reason: string | null
+}
+
+function previewFirst(tracks: Track[]) {
+  return [...tracks.filter((track) => track.previewUrl), ...tracks.filter((track) => !track.previewUrl)]
+}
+
+function songsPath(accountId: string, query: string, cursor: string | null = null) {
+  const params = new URLSearchParams({ accountId, type: 'music', q: query })
+  if (cursor) params.set('cursor', cursor)
+  return `/api/audio?${params.toString()}`
+}
+
 export function SongPicker({
   accountId,
   enabled,
@@ -55,39 +75,76 @@ export function SongPicker({
   const [playingId, setPlayingId] = useState<string | null>(null)
   const [loadingId, setLoadingId] = useState<string | null>(null)
   const [playError, setPlayError] = useState<string | null>(null)
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [moreError, setMoreError] = useState<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const listRef = useRef<HTMLUListElement | null>(null)
+  const endRef = useRef<HTMLLIElement | null>(null)
+  // Bumped on every new search so answers for an older search or account are ignored.
+  const listVersion = useRef(0)
 
   useEffect(() => {
     if (!enabled || !accountId) return
-    let active = true
+    const version = ++listVersion.current
     setLoading(true)
     setError(null)
+    setMoreError(null)
+    setLoadingMore(false)
+    setNextCursor(null)
     const timer = window.setTimeout(() => {
-      const params = new URLSearchParams({ accountId, type: 'music', q: requestQuery })
-      api<{ tracks: Track[]; available: boolean; needsPage?: boolean; needsLink?: boolean; reason: string | null }>(`/api/audio?${params.toString()}`)
+      api<AudioResponse>(songsPath(accountId, requestQuery))
         .then((data) => {
-          if (!active) return
-          setTracks([...data.tracks.filter((track) => track.previewUrl), ...data.tracks.filter((track) => !track.previewUrl)])
+          if (version !== listVersion.current) return
+          setTracks(previewFirst(data.tracks))
+          setNextCursor(data.hasMore ? data.nextCursor : null)
           setNeedsPage(Boolean(data.needsPage))
           setNeedsLink(Boolean(data.needsLink))
           setReason(data.available ? null : data.reason)
         })
         .catch((failure) => {
-          if (!active) return
+          if (version !== listVersion.current) return
           setTracks([])
           setNeedsPage(false)
           setNeedsLink(false)
           setError(failure instanceof Error ? failure.message : 'Songs could not be loaded.')
         })
         .finally(() => {
-          if (active) setLoading(false)
+          if (version === listVersion.current) setLoading(false)
         })
     }, 300)
-    return () => {
-      active = false
-      window.clearTimeout(timer)
-    }
+    return () => window.clearTimeout(timer)
   }, [accountId, enabled, requestQuery])
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore || loading) return
+    const version = listVersion.current
+    setLoadingMore(true)
+    setMoreError(null)
+    try {
+      const data = await api<AudioResponse>(songsPath(accountId, requestQuery, nextCursor))
+      if (version !== listVersion.current) return
+      setTracks((current) => {
+        const listed = new Set(current.map((track) => track.id))
+        return [...current, ...previewFirst(data.tracks.filter((track) => !listed.has(track.id)))]
+      })
+      setNextCursor(data.hasMore ? data.nextCursor : null)
+    } catch (failure) {
+      if (version === listVersion.current) setMoreError(failure instanceof Error ? failure.message : 'More songs could not be loaded.')
+    } finally {
+      if (version === listVersion.current) setLoadingMore(false)
+    }
+  }, [accountId, loading, loadingMore, nextCursor, requestQuery])
+
+  useEffect(() => {
+    const end = endRef.current
+    if (!end || !nextCursor || moreError) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void loadMore()
+    }, { root: listRef.current, rootMargin: '200px' })
+    observer.observe(end)
+    return () => observer.disconnect()
+  }, [loadMore, moreError, nextCursor])
 
   useEffect(() => () => audioRef.current?.pause(), [])
 
@@ -175,14 +232,14 @@ export function SongPicker({
           {loading ? <p className="text-sm text-muted-foreground">Loading songs…</p> : null}
           {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : null}
           {playError ? <p className="text-sm text-amber-800" role="status">{playError}</p> : null}
-          <ul className="max-h-[28rem] space-y-1 overflow-auto">
+          <ul ref={listRef} className="max-h-[28rem] space-y-1 overflow-auto">
             {tracks.map((track) => {
               const selected = value?.id === track.id
               return (
                 <li key={track.id}>
                   <div className={`flex items-center gap-3 rounded-lg px-2 py-2 ${selected ? 'bg-slate-100' : 'hover:bg-slate-50'}`}>
                     <button type="button" className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md bg-slate-200" onClick={() => play(track)} aria-label={!track.previewUrl ? `Select ${track.title} (no preview)` : playingId === track.id ? 'Pause preview' : 'Play preview'}>
-                      {track.artworkUrl ? <img src={mediaAddress(track.artworkUrl)} alt="" className="h-full w-full object-cover" /> : null}
+                      {track.artworkUrl ? <img src={mediaAddress(track.artworkUrl)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" /> : null}
                       <span className="absolute inset-0 flex items-center justify-center bg-black/25 text-white">
                         {!track.previewUrl ? <Music2 className="h-4 w-4" /> : loadingId === track.id ? <Loader2 className="h-4 w-4 animate-spin" /> : playingId === track.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                       </span>
@@ -200,6 +257,18 @@ export function SongPicker({
                 </li>
               )
             })}
+            {!loading && tracks.length > 0 ? (
+              <li ref={endRef} className="px-2 py-3 text-center">
+                {nextCursor ? (
+                  <Button type="button" variant="outline" size="sm" onClick={() => void loadMore()} disabled={loadingMore}>
+                    {loadingMore ? <><Loader2 className="h-4 w-4 animate-spin" /> Loading more songs…</> : 'Load more songs'}
+                  </Button>
+                ) : (
+                  <p className="text-xs text-muted-foreground">{requestQuery ? 'Instagram returns one page of results for a search. Try another word for different songs.' : `That is every trending song Instagram shares (${tracks.length}).`}</p>
+                )}
+                {moreError ? <p className="mt-2 text-xs text-destructive" role="alert">{moreError}</p> : null}
+              </li>
+            ) : null}
           </ul>
           {!loading && tracks.length === 0 && !error ? <p className="text-sm text-muted-foreground">{requestQuery ? `No songs matched “${requestQuery}”.` : 'Instagram did not return trending songs for this account.'}</p> : null}
           {value ? (
