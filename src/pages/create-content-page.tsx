@@ -574,8 +574,8 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
             >
               <Upload className="mb-2 h-6 w-6 text-primary" />
               <span className="text-sm font-semibold">Drop one or more finished {kind === 'story' ? 'stories' : `${kind}s`} here</span>
-              <span className="mt-1 text-xs text-muted-foreground">{kind === 'story' ? 'JPEG, PNG, WebP, GIF, MP4, or MOV.' : 'JPG, PNG, MP4, or MOV.'} Several files become separate posts with the same caption.</span>
-              <input id="media-file" type="file" multiple className="pointer-events-none absolute h-px w-px opacity-0" accept={kind === 'story' ? 'image/jpeg,image/png,image/webp,image/gif,image/bmp,video/mp4,video/quicktime' : 'image/jpeg,image/png,video/mp4,video/quicktime'} onChange={(event) => {
+              <span className="mt-1 text-xs text-muted-foreground">{kind === 'story' || kind === 'image' ? 'JPEG, PNG, WebP, GIF, BMP, MP4, or MOV.' : 'JPG, PNG, MP4, or MOV.'} Several files become separate posts with the same caption.</span>
+              <input id="media-file" type="file" multiple className="pointer-events-none absolute h-px w-px opacity-0" accept={kind === 'story' || kind === 'image' ? 'image/jpeg,image/png,image/webp,image/gif,image/bmp,video/mp4,video/quicktime' : 'image/jpeg,image/png,video/mp4,video/quicktime'} onChange={(event) => {
                 const files = [...(event.target.files ?? [])]
                 event.target.value = ''
                 void onFiles(files)

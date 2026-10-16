@@ -12,11 +12,11 @@ export type ComposerFormat = {
 export const composerFormats: ComposerFormat[] = [
   { id: 'instagram_reel', label: 'Instagram Reel', platform: 'instagram', kind: 'video', firstComment: true, note: 'MP4 or MOV, 3 seconds to 15 minutes, up to 300 MB. 9:16 is recommended.' },
   { id: 'instagram_story', label: 'Instagram Story', platform: 'instagram', kind: 'either', firstComment: false, note: 'Business accounts only. JPEG, PNG, WebP, or GIF up to 8 MB, or video from 3 to 60 seconds up to 100 MB.' },
-  { id: 'instagram_feed_image', label: 'Instagram Feed Image', platform: 'instagram', kind: 'image', firstComment: true, note: 'JPEG only, up to 8 MB. Aspect ratio from 4:5 to 1.91:1, width 320 to 1440.' },
+  { id: 'instagram_feed_image', label: 'Instagram Feed Image', platform: 'instagram', kind: 'image', firstComment: true, note: 'JPEG, PNG, WebP, GIF, or BMP, up to 8 MB. Aspect ratio from 4:5 to 1.91:1, width 320 to 1440.' },
   { id: 'instagram_feed_video', label: 'Instagram Feed Video', platform: 'instagram', kind: 'video', firstComment: true, note: 'Published through the Reel API with sharing to the feed. MP4 or MOV, 3 seconds to 15 minutes.' },
   { id: 'facebook_reel', label: 'Facebook Reel', platform: 'facebook', kind: 'video', firstComment: false, note: '9:16 MP4 or MOV, at least 540×960, 3 to 90 seconds, up to 300 MB.' },
   { id: 'facebook_story', label: 'Facebook Story', platform: 'facebook', kind: 'either', firstComment: false, note: '9:16 photo (JPEG, PNG, WebP, GIF) or video. Video stories are 3 to 60 seconds and at least 540×960.' },
-  { id: 'facebook_image', label: 'Facebook Image Post', platform: 'facebook', kind: 'image', firstComment: false, note: 'JPEG or PNG, up to 10 MB, at least 320 pixels wide.' },
+  { id: 'facebook_image', label: 'Facebook Image Post', platform: 'facebook', kind: 'image', firstComment: false, note: 'JPEG, PNG, WebP, GIF, or BMP, up to 10 MB, at least 320 pixels wide.' },
   { id: 'facebook_video', label: 'Facebook Video Post', platform: 'facebook', kind: 'video', firstComment: false, note: 'MP4 or MOV, up to 300 MB.' },
 ]
 
@@ -37,7 +37,9 @@ export function validateLocalMedia(formatId: string, probe: LocalProbe) {
   if (!format) return ['Choose a content type.']
   if (format.kind !== 'either' && probe.kind !== format.kind) errors.push(`${format.label} needs a ${format.kind} file.`)
   if (format.id === 'instagram_feed_image') {
-    if (probe.mime !== 'image/jpeg') errors.push('Instagram feed images must be JPEG.')
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp'].includes(probe.mime)) {
+      errors.push('Instagram feed images accept JPEG, PNG, WebP, GIF, or BMP.')
+    }
     if (probe.bytes > mb(8)) errors.push('Instagram images must be 8 MB or smaller.')
   }
   if (format.id === 'instagram_story' && probe.kind === 'image') {
@@ -50,7 +52,9 @@ export function validateLocalMedia(formatId: string, probe: LocalProbe) {
     if (aspect < 0.79 || aspect > 1.92) errors.push('Use an aspect ratio between 4:5 and 1.91:1.')
   }
   if (format.id === 'facebook_image') {
-    if (probe.mime !== 'image/jpeg' && probe.mime !== 'image/png') errors.push('Facebook image posts accept JPEG or PNG.')
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp'].includes(probe.mime)) {
+      errors.push('Facebook image posts accept JPEG, PNG, WebP, GIF, or BMP.')
+    }
     if (probe.bytes > mb(10)) errors.push('Facebook images must be 10 MB or smaller.')
     if (probe.width && probe.width < 320) errors.push('Width must be at least 320 pixels.')
   }
