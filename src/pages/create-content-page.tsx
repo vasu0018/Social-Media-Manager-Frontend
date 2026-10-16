@@ -278,10 +278,6 @@ export function CreateContentPage({ story = false }: { story?: boolean }) {
       setFieldError('The cover must be a JPEG or PNG photo.')
       return
     }
-    if (file.size > 8 * 1024 * 1024) {
-      setFieldError('The cover must be 8 MB or smaller.')
-      return
-    }
     setCoverBusy(true)
     setFieldError(null)
     try {
